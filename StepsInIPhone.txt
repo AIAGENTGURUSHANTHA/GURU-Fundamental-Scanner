@@ -1,0 +1,242 @@
+============================================================
+  GURU Fundamental Scanner — iPhone Setup Guide
+============================================================
+
+IMPORTANT — HOW THIS APP WORKS ON iPHONE
+------------------------------------------
+GURU Fundamental Scanner is a web application that runs on
+your Mac or Windows computer. Your iPhone connects to it over
+your home/office WiFi network. The computer must be ON and
+the app must be running for your iPhone to access it.
+
+Think of it like a website running on your own computer —
+your iPhone opens it in Safari, just like a website.
+
+ABOUT iPHONE APP INSTALLATION:
+Apple restricts installing apps outside the App Store.
+Publishing to the App Store requires:
+  - An Apple Developer account ($99 USD per year)
+  - A Mac with Xcode
+  - App review process (1-7 days)
+
+The PRACTICAL and FREE alternative for personal use is:
+  "Add to Home Screen" via Safari
+
+This is covered in full detail below. When done, it looks and
+feels exactly like an installed app on your iPhone.
+
+You have TWO options:
+
+  Option 1 : Open in Safari browser (simplest, no install)
+  Option 2 : Add to Home Screen via Safari (looks like an app)
+
+============================================================
+  PART 1 — FIND YOUR COMPUTER'S IP ADDRESS
+============================================================
+
+You need your computer's IP address so your iPhone can find it.
+
+ON WINDOWS:
+  1. Press  Win + R, type  cmd, press Enter
+  2. Type:   ipconfig
+  3. Look for "Wireless LAN adapter Wi-Fi:"
+     Find the line:  IPv4 Address . . . . . : 192.168.X.X
+  4. Write down that number (e.g. 192.168.1.5)
+
+ON MAC:
+  1. Open Terminal (Applications → Utilities → Terminal)
+  2. Type:   ipconfig getifaddr en0
+  3. The number shown is your IP (e.g. 192.168.1.5)
+
+NOTE: Your computer and iPhone must be on the SAME WiFi network.
+
+
+============================================================
+  PART 2 — START THE APP ON YOUR COMPUTER
+============================================================
+
+ON WINDOWS:
+  Double-click  run.bat  in the GURU_FUNDAMENTAL_SCANNER folder.
+
+ON MAC:
+  Open Terminal, go to the app folder, and run:  bash run.sh
+
+Wait until you see:
+  "Local URL: http://localhost:8501"
+  "Network URL: http://192.168.X.X:8501"
+
+The app is now ready.
+
+
+============================================================
+  OPTION 1 — OPEN IN SAFARI BROWSER (Simplest)
+============================================================
+
+1. On your iPhone, open Safari
+   (NOTE: Must be Safari — Chrome on iPhone cannot add to Home Screen)
+2. In the address bar at the top, type:
+      http://192.168.X.X:8501
+   (replace 192.168.X.X with your computer's actual IP from Part 1)
+3. Tap "Go" on the keyboard
+4. The GURU Scanner login screen will appear
+5. Log in with your phone number and OTP
+6. Done! Use the app normally in Safari.
+
+TIP: Bookmark this URL in Safari for quick access next time.
+     Tap the Share button (box with arrow) → "Add Bookmark"
+
+
+============================================================
+  OPTION 2 — ADD TO HOME SCREEN VIA SAFARI (Recommended)
+============================================================
+
+This creates an app icon on your iPhone's home screen.
+When you tap it, it opens full screen — no browser address bar —
+exactly like a native app.
+
+STEP 1: Open the app in Safari
+  - Follow Option 1 above
+  - Make sure the app is fully loaded (you can see the login screen)
+
+STEP 2: Tap the Share button
+  - Look for the Share icon at the bottom of Safari
+    It looks like a box with an upward arrow: [  ↑  ]
+  - Tap it
+  - A menu slides up from the bottom
+
+STEP 3: Find "Add to Home Screen"
+  - Scroll left/right through the icons in the share menu
+  - Tap "Add to Home Screen"
+    (If you don't see it, scroll the bottom row of options to the right)
+
+STEP 4: Name the app
+  - A dialog appears with the name "GURU Scanner" (pre-filled)
+  - You can change the name if you want
+  - Tap "Add" in the top-right corner
+
+STEP 5: Find the icon on your home screen
+  - The GURU Scanner icon has been added to your home screen
+  - Swipe to find it, or look on the last page of apps
+
+STEP 6: Open from home screen
+  - Tap the GURU Scanner icon
+  - It opens in full-screen mode without the Safari browser bar
+  - It looks and feels exactly like a native installed app
+
+IMPORTANT: Every time you tap the home screen icon, your iPhone
+connects to your computer over WiFi. The computer must be
+running the app (run.bat or run.sh must be active).
+
+
+============================================================
+  ABOUT IPA FILES (iPhone App Package)
+============================================================
+
+An IPA is the iPhone equivalent of an Android APK file.
+To create and install an IPA outside the App Store you need:
+
+OPTION A — TestFlight (Apple's official beta testing tool)
+  Requires:
+  - Apple Developer account ($99 USD/year at developer.apple.com)
+  - Mac computer with Xcode installed (free, 12GB download)
+  - Build the app using Xcode
+  - Upload to TestFlight via App Store Connect
+  - Invite your own Apple ID as a tester
+  Difficulty: Very high (requires iOS/macOS development knowledge)
+
+OPTION B — AltStore (Sideloading without App Store)
+  - Free, but requires re-signing the IPA every 7 days
+  - Visit altstore.io for instructions
+  - Requires a Mac or Windows PC to be connected occasionally
+  Difficulty: Medium
+
+OPTION C — Add to Home Screen (RECOMMENDED — No IPA needed)
+  - Follow the steps in Option 2 above
+  - Works exactly like an installed app
+  - Free, instant, no developer account needed
+  - This is the standard way web apps work on iPhone
+  Difficulty: Very easy (5 minutes)
+
+RECOMMENDATION: Use Option 2 (Add to Home Screen).
+It is free, works instantly, and Apple officially supports
+this feature. It is how all web apps are "installed" on iPhone.
+
+
+============================================================
+  TROUBLESHOOTING — iPHONE
+============================================================
+
+Problem : Safari shows "Safari Cannot Open the Page"
+Fix     : Make sure the computer is running the app.
+          Confirm your iPhone is on the same WiFi as your computer.
+          Double-check the IP address you typed.
+
+Problem : "Add to Home Screen" is not in the Share menu
+Fix     : It may be hidden. In the share menu, scroll the second row
+          of options to the right — it should appear there.
+          Alternatively: tap "Edit Actions" at the bottom of the
+          share menu and add "Add to Home Screen" to your favourites.
+
+Problem : Home screen icon opens to blank white screen
+Fix     : The app server on your computer has stopped.
+          Run  run.bat  (Windows) or  bash run.sh  (Mac) again.
+          Then tap the icon — it should work.
+
+Problem : App works in Safari but home screen icon doesn't connect
+Fix     : Your computer's IP address may have changed.
+          Find the new IP (Part 1), open it in Safari, and
+          add to home screen again (Option 2).
+
+Problem : Login OTP not received via SMS
+Fix     : OTP appears directly on the login screen (grey box)
+          if Twilio SMS is not configured. Check below the OTP
+          input field on the login page.
+
+Problem : App looks too small / text is tiny on iPhone
+Fix     : In Safari, pinch to zoom in. Or rotate phone to landscape.
+          The app is designed for desktop — it works on mobile but
+          desktop view gives the best experience.
+
+Problem : Only Safari can add to Home Screen, not Chrome on iPhone
+Fix     : This is correct — Apple only allows Safari for the
+          "Add to Home Screen" feature on iPhone. Use Safari.
+
+
+============================================================
+  FOR 24/7 iPHONE ACCESS (Without Keeping Computer On)
+============================================================
+
+If you want the app accessible from anywhere without keeping
+your computer on, you can deploy to the cloud:
+
+  Option A : Streamlit Community Cloud (Free)
+    - Push code to GitHub
+    - Go to share.streamlit.io
+    - Connect GitHub and deploy
+
+  Option B : Railway.app or Render.com (Free tier available)
+    - Similar GitHub-based deployment
+
+  Option C : VPS (DigitalOcean, AWS, Azure)
+    - Full control, runs 24/7
+
+After cloud deployment, you get a public HTTPS URL like:
+   https://your-app.streamlit.app
+
+Open that URL in Safari on your iPhone and add to home screen —
+it will work from anywhere, any time, with or without your
+computer being switched on.
+
+
+============================================================
+  QUICK REFERENCE — iPHONE
+============================================================
+
+Computer IP    :  ipconfig (Windows)  |  ipconfig getifaddr en0 (Mac)
+App URL        :  http://[YOUR-IP]:8501
+Start app      :  Double-click run.bat (Windows)  |  bash run.sh (Mac)
+Open on iPhone :  Safari → type the URL above
+Add to Home    :  Safari Share button (↑) → "Add to Home Screen"
+                  MUST use Safari (not Chrome) on iPhone
+
+============================================================

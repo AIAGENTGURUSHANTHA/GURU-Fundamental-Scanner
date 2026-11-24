@@ -1,0 +1,1 @@
+# GURU Fundamental Scanner

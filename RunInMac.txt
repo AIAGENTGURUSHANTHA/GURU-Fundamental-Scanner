@@ -1,0 +1,152 @@
+============================================================
+  GURU Fundamental Scanner — macOS Setup & Run Guide
+============================================================
+
+REQUIREMENTS
+------------
+- macOS 11 (Big Sur) or newer
+- Python 3.9 or newer
+- Internet connection (for NSE India & Yahoo Finance data)
+
+
+STEP 1 — INSTALL PYTHON (skip if already installed)
+----------------------------------------------------
+Option A — Official Installer (Recommended):
+  1. Go to https://python.org/downloads
+  2. Download the latest Python 3.x macOS installer (.pkg)
+  3. Open the .pkg and follow the prompts
+  4. Open Terminal and verify:
+        python3 --version
+     You should see: Python 3.12.x (or similar)
+
+Option B — Homebrew (if you use Homebrew):
+  1. Install Homebrew from https://brew.sh if not already installed
+  2. Run:
+        brew install python
+
+
+STEP 2 — DOWNLOAD / COPY THE APP
+---------------------------------
+Make sure you have the GURU_FUNDAMENTAL_SCANNER folder on your Mac.
+It should contain these files:
+  app.py
+  config.py
+  setup.py
+  requirements.txt
+  run.bat
+  run.sh
+  src/
+  data/
+
+
+STEP 3 — SET UP ENVIRONMENT FILE (.env)
+----------------------------------------
+1. Open Terminal and navigate to the app folder:
+      cd /path/to/GURU_FUNDAMENTAL_SCANNER
+
+2. Create the .env file:
+      nano .env
+
+3. Add the following lines:
+
+      ADMIN_PHONE=+91XXXXXXXXXX
+
+   Replace +91XXXXXXXXXX with your mobile number (e.g. +919876543210)
+
+   Optional (for real SMS OTP — leave blank to use on-screen OTP):
+      TWILIO_ACCOUNT_SID=your_twilio_sid
+      TWILIO_AUTH_TOKEN=your_twilio_token
+      TWILIO_PHONE_NUMBER=+1XXXXXXXXXX
+
+4. Save: press Ctrl + O, then Enter, then Ctrl + X to exit.
+
+   NOTE: If you do not add Twilio details, the app runs in DEV MODE —
+   the OTP code will be shown directly on the login screen. This is
+   fine for personal/local use.
+
+
+STEP 4 — MAKE run.sh EXECUTABLE (one-time only)
+-------------------------------------------------
+In Terminal, run:
+   chmod +x /path/to/GURU_FUNDAMENTAL_SCANNER/run.sh
+
+
+STEP 5 — RUN THE APP
+----------------------
+Option A (Terminal — Recommended):
+  1. Open Terminal (Applications → Utilities → Terminal)
+  2. Navigate to the app folder:
+        cd /path/to/GURU_FUNDAMENTAL_SCANNER
+  3. Run:
+        bash run.sh
+
+Option B (Double Click — macOS Finder):
+  1. Right-click on run.sh in Finder
+  2. Select "Open With" → Terminal
+  3. Click Open if prompted
+
+
+STEP 6 — OPEN IN BROWSER
+--------------------------
+Once you see the message:
+   "You can now view your Streamlit app in your browser"
+   "Local URL: http://localhost:8501"
+
+Open your browser (Safari / Chrome / Firefox) and go to:
+   http://localhost:8501
+
+
+WHAT HAPPENS ON FIRST RUN
+--------------------------
+- A virtual environment (venv folder) is created automatically
+- All required Python packages are installed (takes 2–5 minutes)
+- The database is set up and your admin account is created
+- Subsequent runs start much faster (under 10 seconds)
+
+
+STOPPING THE APP
+-----------------
+Press Ctrl + C in the Terminal window.
+
+
+TROUBLESHOOTING
+---------------
+Problem : "python3: command not found"
+Fix     : Install Python 3 using Option A or B in Step 1 above.
+
+Problem : "Permission denied" when running run.sh
+Fix     : Run this once in Terminal:
+             chmod +x run.sh
+          Then try bash run.sh again.
+
+Problem : "pip install failed" or packages not installing
+Fix     : Check your internet connection. Some corporate networks
+          block pip. Try on a personal network.
+
+Problem : App opens but shows a blank white page
+Fix     : Wait 10–15 seconds and refresh the browser. On first run
+          the app may take longer to initialise.
+
+Problem : "Port 8501 is already in use"
+Fix     : Another instance is running. Stop it with:
+             pkill -f "streamlit run"
+          Then run bash run.sh again.
+
+Problem : macOS asks for network access permission
+Fix     : Click "Allow" — Streamlit needs local network access to
+          serve the app in your browser.
+
+Problem : Login OTP not received via SMS
+Fix     : You may not have Twilio configured. The OTP will appear
+          directly on the login screen in DEV MODE — look for the
+          grey box below the OTP input field.
+
+Problem : "xcode-select --install" message in Terminal
+Fix     : This is optional (Watchdog for file watching). The app
+          works without it. You can safely ignore this message.
+
+
+============================================================
+  App URL  :  http://localhost:8501
+  Run file :  bash run.sh  (in Terminal)
+============================================================

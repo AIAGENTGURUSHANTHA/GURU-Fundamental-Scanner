@@ -1,0 +1,236 @@
+============================================================
+  GURU Fundamental Scanner — Android Phone Setup Guide
+============================================================
+
+IMPORTANT — HOW THIS APP WORKS ON MOBILE
+-----------------------------------------
+GURU Fundamental Scanner is a web application that runs on
+your Mac or Windows computer. Your phone connects to it over
+your home/office WiFi network. The computer must be ON and
+the app must be running for your phone to access it.
+
+Think of it like a website running on your own computer —
+your phone opens it in the browser, just like a website.
+
+You have THREE options (choose the one that suits you):
+
+  Option 1 : Open in Chrome browser (simplest, no install)
+  Option 2 : Add to Home Screen (looks and feels like an app)
+  Option 3 : Install as a proper APK file (most app-like)
+
+All three are covered below.
+
+============================================================
+  PART 1 — FIND YOUR COMPUTER'S IP ADDRESS
+============================================================
+
+You need your computer's IP address so your phone can find it.
+
+ON WINDOWS:
+  1. Press  Win + R, type  cmd, press Enter
+  2. Type:   ipconfig
+  3. Look for "Wireless LAN adapter Wi-Fi:"
+     Find the line:  IPv4 Address . . . . . : 192.168.X.X
+  4. Write down that number (e.g. 192.168.1.5)
+
+ON MAC:
+  1. Open Terminal (Applications → Utilities → Terminal)
+  2. Type:   ipconfig getifaddr en0
+  3. The number shown is your IP (e.g. 192.168.1.5)
+
+NOTE: Your computer and phone must be on the SAME WiFi network.
+
+
+============================================================
+  PART 2 — START THE APP ON YOUR COMPUTER
+============================================================
+
+ON WINDOWS:
+  Double-click  run.bat  in the GURU_FUNDAMENTAL_SCANNER folder.
+
+ON MAC:
+  Open Terminal, go to the app folder, and run:  bash run.sh
+
+Wait until you see:
+  "Local URL: http://localhost:8501"
+  "Network URL: http://192.168.X.X:8501"
+
+The app is now ready.
+
+
+============================================================
+  OPTION 1 — OPEN IN CHROME BROWSER (Simplest)
+============================================================
+
+1. On your Android phone, open Google Chrome
+2. In the address bar type:
+      http://192.168.X.X:8501
+   (replace 192.168.X.X with your computer's actual IP from Part 1)
+3. The GURU Scanner login screen will appear
+4. Log in with your phone number and OTP
+5. Done! Use the app normally.
+
+TIP: Bookmark this URL in Chrome so you can open it quickly next time.
+
+
+============================================================
+  OPTION 2 — ADD TO HOME SCREEN (Recommended — Free)
+============================================================
+
+This creates an icon on your phone's home screen.
+When you tap it, it opens full screen like a real app.
+
+STEP 1: Open the app in Chrome (follow Option 1 above first)
+
+STEP 2: Add to Home Screen
+  Method A — Chrome prompt (automatic):
+    After opening the app, Chrome may show a banner at the bottom:
+    "Add GURU Scanner to Home screen"
+    Tap "Add" and you're done.
+
+  Method B — Manual (if no banner appears):
+    1. Tap the 3-dot menu (⋮) in the top-right corner of Chrome
+    2. Scroll down and tap "Add to Home screen"
+       (or "Install app" if Chrome detects the PWA manifest)
+    3. Tap "Add" in the popup
+    4. The GURU Scanner icon appears on your home screen
+
+STEP 3: Open from home screen
+  Tap the GURU Scanner icon on your home screen.
+  It will open in full-screen mode without the browser toolbar —
+  it looks and feels like a native app.
+
+IMPORTANT: The computer must still be running the app whenever
+you open it from the home screen icon.
+
+
+============================================================
+  OPTION 3 — INSTALL AS APK FILE (Most App-Like)
+============================================================
+
+An APK is the Android app package format. This wraps the GURU
+Scanner into a proper installable app. The app still connects
+to your computer over WiFi — it is a WebView wrapper.
+
+NOTE: You need to know your computer's static/fixed IP address
+(or set a fixed IP in your WiFi router settings).
+
+METHOD A — Using PWABuilder (Free, Microsoft's official tool)
+--------------------------------------------------------------
+
+STEP 1: Keep the GURU Scanner running on your computer
+
+STEP 2: On your computer, go to:
+   https://www.pwabuilder.com
+
+STEP 3: In the URL box, enter:
+   http://192.168.X.X:8501
+   (use your actual computer IP address)
+   Click "Start"
+
+STEP 4: PWABuilder analyses the app. When done, click:
+   "Package for Stores"
+
+STEP 5: Under "Android", click "Generate Package"
+   - Select "Android" → "Download Package"
+   - You will get a .apk file
+
+STEP 6: Transfer the APK to your phone
+   - Email it to yourself, or
+   - Copy via USB cable to your phone's Downloads folder
+
+STEP 7: Install the APK on your phone
+   1. On your Android phone, go to:
+      Settings → Apps → Special app access → Install unknown apps
+   2. Find "Files" or "My Files" app → Enable "Allow from this source"
+   3. Open the APK file you transferred
+   4. Tap "Install"
+   5. Tap "Open" to launch
+
+STEP 8: First launch
+   The app opens and connects to your computer's Streamlit server.
+   Log in as usual.
+
+METHOD B — Using AppGyser (Easier, no account needed)
+------------------------------------------------------
+
+STEP 1: On your computer, go to:
+   https://appgeyser.com
+
+STEP 2: Click "Create App" → "Website"
+
+STEP 3: Enter your app details:
+   App Name : GURU Fundamental Scanner
+   Website  : http://192.168.X.X:8501
+   (replace with your computer's actual IP)
+
+STEP 4: Follow the steps and download the generated APK
+
+STEP 5: Install on your phone following Step 7 from Method A above.
+
+
+============================================================
+  TROUBLESHOOTING — ANDROID
+============================================================
+
+Problem : Chrome shows "This site can't be reached"
+Fix     : Make sure the computer is running the app (run.bat/run.sh)
+          and your phone is on the same WiFi. Check the IP address.
+
+Problem : "Install unknown apps" option not visible
+Fix     : Go to Settings → Biometrics and Security → Install Unknown Apps
+          (location varies by Android version and phone brand)
+
+Problem : APK says "App not installed" error
+Fix     : Your phone may have blocked the install. Go to:
+          Settings → Apps → Special app access → Install unknown apps
+          and allow installation for the app you used to open the APK.
+
+Problem : App icon opens but shows "Unable to connect"
+Fix     : Your computer's IP may have changed (dynamic IP).
+          Run  ipconfig  again to find the new IP.
+          Ask your router to assign a fixed/static IP to your computer.
+
+Problem : Login OTP not received
+Fix     : The OTP may appear directly on the login screen (grey box)
+          if Twilio SMS is not configured. Check below the OTP input field.
+
+Problem : App is slow on phone
+Fix     : This is normal for a web app over WiFi. Try closing other
+          browser tabs and apps on your phone.
+
+
+============================================================
+  FOR 24/7 MOBILE ACCESS (Advanced — Without Computer)
+============================================================
+
+If you want the app accessible from anywhere without keeping
+your computer on, you can deploy to the cloud:
+
+  Option A : Streamlit Community Cloud (Free)
+    - Push code to GitHub
+    - Go to share.streamlit.io
+    - Connect GitHub and deploy
+
+  Option B : Railway.app or Render.com (Free tier available)
+    - Similar GitHub-based deployment
+
+  Option C : VPS (DigitalOcean, AWS, Azure)
+    - Full control, runs 24/7
+
+After cloud deployment, you get a public URL like:
+   https://your-app.streamlit.app
+Use that URL in your phone browser or in the APK builder above.
+
+
+============================================================
+  QUICK REFERENCE — ANDROID
+============================================================
+
+Computer IP    :  Run  ipconfig  (Windows) or  ipconfig getifaddr en0  (Mac)
+App URL        :  http://[YOUR-IP]:8501
+Start app      :  Double-click run.bat (Windows)  |  bash run.sh (Mac)
+Install APK    :  pwabuilder.com  or  appgeyser.com
+Add to Home    :  Chrome menu (⋮) → "Add to Home screen"
+
+============================================================

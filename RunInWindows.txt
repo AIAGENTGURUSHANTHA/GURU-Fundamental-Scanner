@@ -1,0 +1,129 @@
+============================================================
+  GURU Fundamental Scanner — Windows Setup & Run Guide
+============================================================
+
+REQUIREMENTS
+------------
+- Windows 10 or Windows 11
+- Python 3.9 or newer
+- Internet connection (for NSE India & Yahoo Finance data)
+
+
+STEP 1 — INSTALL PYTHON (skip if already installed)
+----------------------------------------------------
+1. Go to https://python.org/downloads
+2. Download the latest Python 3.x installer
+3. Run the installer
+   IMPORTANT: Tick the checkbox "Add Python to PATH" before clicking Install
+4. Click "Install Now"
+5. Verify installation — open Command Prompt and type:
+      python --version
+   You should see something like: Python 3.12.x
+
+
+STEP 2 — DOWNLOAD / COPY THE APP
+---------------------------------
+Make sure you have the GURU_FUNDAMENTAL_SCANNER folder on your computer.
+It should contain these files:
+  app.py
+  config.py
+  setup.py
+  requirements.txt
+  run.bat
+  run.sh
+  src\
+  data\
+
+
+STEP 3 — SET UP ENVIRONMENT FILE (.env)
+----------------------------------------
+1. Inside the GURU_FUNDAMENTAL_SCANNER folder, create a file named:
+      .env
+   (just the name .env, no other extension)
+
+2. Open it with Notepad and add the following lines:
+
+      ADMIN_PHONE=+91XXXXXXXXXX
+
+   Replace +91XXXXXXXXXX with your mobile number (e.g. +919876543210)
+
+   Optional (for real SMS OTP — leave blank to use on-screen OTP):
+      TWILIO_ACCOUNT_SID=your_twilio_sid
+      TWILIO_AUTH_TOKEN=your_twilio_token
+      TWILIO_PHONE_NUMBER=+1XXXXXXXXXX
+
+3. Save and close the file.
+
+   NOTE: If you do not add Twilio details, the app runs in DEV MODE —
+   the OTP code will be shown directly on the login screen. This is
+   fine for personal/local use.
+
+
+STEP 4 — RUN THE APP
+----------------------
+Option A (Easiest — Double Click):
+  Simply double-click the file:  run.bat
+  A Command Prompt window will open and the app will start automatically.
+
+Option B (Command Prompt):
+  1. Open Command Prompt (press Win + R, type cmd, press Enter)
+  2. Navigate to the app folder:
+        cd C:\path\to\GURU_FUNDAMENTAL_SCANNER
+  3. Run:
+        run.bat
+
+
+STEP 5 — OPEN IN BROWSER
+--------------------------
+Once you see the message:
+   "You can now view your Streamlit app in your browser"
+   "Local URL: http://localhost:8501"
+
+Open your browser (Chrome / Edge / Firefox) and go to:
+   http://localhost:8501
+
+
+WHAT HAPPENS ON FIRST RUN
+--------------------------
+- A virtual environment (venv folder) is created automatically
+- All required Python packages are installed (takes 2–5 minutes)
+- The database is set up and your admin account is created
+- Subsequent runs start much faster (under 10 seconds)
+
+
+STOPPING THE APP
+-----------------
+Press Ctrl + C in the Command Prompt window, then close it.
+
+
+TROUBLESHOOTING
+---------------
+Problem : "python is not recognized as an internal or external command"
+Fix     : Python is not in PATH. Re-install Python and tick
+          "Add Python to PATH" during installation.
+
+Problem : "pip install failed" or packages not installing
+Fix     : Check your internet connection. If behind a corporate proxy,
+          contact your IT team to allow pip.microsoft.com and pypi.org.
+
+Problem : Windows Firewall popup asking to allow Python/Streamlit
+Fix     : Click "Allow access" — the app needs local network access.
+
+Problem : App opens but shows a blank white page
+Fix     : Wait 10–15 seconds and refresh the browser. On first run
+          the app may take longer to initialise.
+
+Problem : "Port 8501 is already in use"
+Fix     : Another instance is running. Close the other Command Prompt
+          window, or run:  taskkill /F /IM python.exe
+
+Problem : Login OTP not received via SMS
+Fix     : You may not have Twilio configured. The OTP will appear
+          directly on the login screen in DEV MODE — look for the
+          grey box below the OTP input field.
+
+
+============================================================
+  App URL  :  http://localhost:8501
+  Run file :  run.bat  (double-click to start)
+============================================================
