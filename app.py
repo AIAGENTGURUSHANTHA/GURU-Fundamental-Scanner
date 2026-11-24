@@ -1663,6 +1663,25 @@ def render_sidebar():
                 del st.session_state[k]
             st.rerun()
 
+        st.markdown("---")
+        import os as _os
+        _pledging_configured = bool(
+            _os.environ.get("SCREENER_USERNAME") or _os.environ.get("SCREENER_EMAIL")
+        )
+        if not _pledging_configured:
+            try:
+                _cfg = st.secrets.get("screener", {})
+                _pledging_configured = bool(_cfg.get("username") or _cfg.get("email"))
+            except Exception:
+                pass
+        if _pledging_configured:
+            st.caption("🔐 screener.in auth active — Pledged % data enabled")
+        else:
+            st.caption(
+                "ℹ️ Pledged % shows N/A — set **SCREENER_USERNAME** & **SCREENER_PASSWORD** "
+                "in Streamlit secrets to enable promoter pledging data."
+            )
+
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 

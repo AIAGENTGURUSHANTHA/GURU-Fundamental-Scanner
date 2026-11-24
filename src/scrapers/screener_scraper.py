@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Any, Dict, Optional
 
@@ -5,11 +6,16 @@ from bs4 import BeautifulSoup
 
 from .base_scraper import BaseScraper
 
+_LOGIN_URL = "https://www.screener.in/login/"
+
 
 class ScreenerScraper(BaseScraper):
     """
     Sole data source — scrapes screener.in company pages.
     Pre-fetches the homepage to obtain session cookies (required by screener.in).
+    Optional: authenticates with screener.in credentials (env vars SCREENER_USERNAME /
+    SCREENER_PASSWORD or Streamlit secrets [screener] username/password) to unlock
+    promoter pledging data which requires a logged-in session.
     """
 
     HOME_URL = "https://www.screener.in"
@@ -27,18 +33,75 @@ class ScreenerScraper(BaseScraper):
             "Upgrade-Insecure-Requests": "1",
         })
         self._session_ready = False
+        self._is_authenticated = False
 
     # ── Session bootstrap ─────────────────────────────────────────────────────
 
     def _ensure_session(self) -> None:
-        """Fetch the screener.in homepage once to establish cookies."""
+        """Fetch the screener.in homepage once to establish cookies, then optionally authenticate."""
         if self._session_ready:
             return
         try:
             self.session.get(self.HOME_URL, timeout=15)
             self._session_ready = True
+            self._try_authenticate()
         except Exception as exc:
             self._log_error(f"Session init failed: {exc}")
+
+    def _try_authenticate(self) -> None:
+        """Authenticate with screener.in if credentials are configured.
+
+        Credentials are read from (in priority order):
+        1. Environment variables  SCREENER_USERNAME / SCREENER_PASSWORD
+        2. Streamlit secrets      [screener] username / password
+        """
+        username = os.environ.get("SCREENER_USERNAME") or os.environ.get("SCREENER_EMAIL")
+        password = os.environ.get("SCREENER_PASSWORD")
+
+        if not username or not password:
+            try:
+                import streamlit as st
+                cfg = st.secrets.get("screener", {})
+                username = cfg.get("username") or cfg.get("email")
+                password = cfg.get("password")
+            except Exception:
+                pass
+
+        if not username or not password:
+            return  # No credentials configured — pledging will show N/A
+
+        try:
+            login_page = self.session.get(_LOGIN_URL, timeout=15)
+            soup = BeautifulSoup(login_page.content, "lxml")
+            csrf_inp = soup.find("input", {"name": "csrfmiddlewaretoken"})
+            if not csrf_inp:
+                return
+            csrf = csrf_inp["value"]
+
+            auth_resp = self.session.post(
+                _LOGIN_URL,
+                data={
+                    "csrfmiddlewaretoken": csrf,
+                    "username": username,
+                    "password": password,
+                    "next": "",
+                },
+                headers={
+                    "Referer": _LOGIN_URL,
+                    "Origin": self.HOME_URL,
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "same-origin",
+                },
+                timeout=20,
+                allow_redirects=True,
+            )
+            if auth_resp.url and "login" not in auth_resp.url:
+                self._is_authenticated = True
+                new_csrf = self.session.cookies.get("csrftoken", "")
+                if new_csrf:
+                    self.session.headers["X-CSRFToken"] = new_csrf
+        except Exception as exc:
+            self._log_error(f"Screener auth failed: {exc}")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -65,6 +128,11 @@ class ScreenerScraper(BaseScraper):
                soup.find("h1", string=re.compile(r"not found", re.I)):
                 return None
 
+            # Extract company ID for authenticated API calls
+            ci = soup.find(id="company-info")
+            if ci:
+                data["_company_id"] = ci.get("data-company-id")
+
             self._extract_name(soup, data)
             self._extract_company_links(soup, data)
             self._extract_top_ratios(soup, data)
@@ -72,6 +140,7 @@ class ScreenerScraper(BaseScraper):
             self._extract_ratios_table(soup, data)
             self._extract_pl_table(soup, data)
             self._extract_balance_sheet(soup, data)
+            self._fetch_pledging(data)
             self._calculate_derived(data)
 
             return data if data.get("current_price") or data.get("market_cap_cr") else None
@@ -403,3 +472,80 @@ class ScreenerScraper(BaseScraper):
             return float(c) if c else None
         except (ValueError, TypeError):
             return None
+
+    # ── Pledging ──────────────────────────────────────────────────────────────
+
+    def _fetch_pledging(self, data: dict) -> None:
+        """Fetch promoter pledging % from screener.in API (requires authentication)."""
+        if not self._is_authenticated:
+            return
+        company_id = data.get("_company_id")
+        if not company_id:
+            return
+        try:
+            resp = self.session.get(
+                f"https://www.screener.in/api/3/{company_id}/investors/pledging/quarterly/",
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                pledging_data = resp.json()
+                if pledging_data:
+                    pct = self._extract_latest_pledging(pledging_data)
+                    if pct is not None:
+                        data["pledged_pct"] = pct
+        except Exception as exc:
+            self._log_error(f"Pledging fetch failed for company {company_id}: {exc}")
+
+    def _extract_latest_pledging(self, pledging_data: Any) -> Optional[float]:
+        """Parse screener.in pledging API response — handles list or dict formats."""
+        try:
+            # Format 1: list of dicts with 'pledged_percentage' or 'pledged' key
+            if isinstance(pledging_data, list) and pledging_data:
+                # Sort by date if present so we get the most recent entry
+                items = pledging_data
+                if isinstance(items[0], dict):
+                    # Try to sort by date key
+                    for date_key in ("date", "period", "quarter", "as_of"):
+                        if date_key in items[0]:
+                            items = sorted(items, key=lambda x: x.get(date_key, ""), reverse=True)
+                            break
+                    latest = items[0]
+                    for key in ("pledged_percentage", "pledged_pct", "pledged", "pct_pledged",
+                                "promoter_pledged_percentage", "pctPledged"):
+                        val = latest.get(key)
+                        if val is not None:
+                            return round(float(val), 2)
+                    # Fallback: look for any float-convertible value with 'pledg' in the key
+                    for k, v in latest.items():
+                        if "pledg" in k.lower():
+                            try:
+                                return round(float(v), 2)
+                            except (TypeError, ValueError):
+                                pass
+
+            # Format 2: dict with a 'data' or 'results' list
+            elif isinstance(pledging_data, dict):
+                for container_key in ("data", "results", "pledging", "quarterly"):
+                    inner = pledging_data.get(container_key)
+                    if isinstance(inner, list) and inner:
+                        return self._extract_latest_pledging(inner)
+                # Format 3: flat dict keyed by quarter/period
+                values = []
+                for k, v in pledging_data.items():
+                    if isinstance(v, (int, float)):
+                        values.append((k, float(v)))
+                    elif isinstance(v, dict):
+                        for kk in ("pledged_percentage", "pledged_pct", "pledged"):
+                            if kk in v:
+                                try:
+                                    values.append((k, float(v[kk])))
+                                except (TypeError, ValueError):
+                                    pass
+                if values:
+                    # Return the value from the most recent key (sorted descending)
+                    values.sort(key=lambda x: x[0], reverse=True)
+                    return round(values[0][1], 2)
+
+        except Exception:
+            pass
+        return None

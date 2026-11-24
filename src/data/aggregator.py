@@ -196,7 +196,7 @@ class DataAggregator:
             enterprise_value=enterprise_value,
             debt_equity=debt_equity,
             operating_profit=operating_profit,
-            promoter_pledging=None,
+            promoter_pledging=sc.get("pledged_pct"),
 
             bse_code=sc.get("bse_code"),
             nse_code=sc.get("nse_code"),
