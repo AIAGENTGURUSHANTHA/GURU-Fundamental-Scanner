@@ -112,61 +112,64 @@ class ScreenerScraper(BaseScraper):
             data["nse_code"] = m_nse.group(1)
 
     def _extract_top_ratios(self, soup: BeautifulSoup, data: dict) -> None:
+        # Scan every container that holds name/number span pairs —
+        # covers both #top-ratios (quick summary) and the custom company-ratios grid
+        containers = []
         ul = soup.find("ul", {"id": "top-ratios"}) or soup.find("ul", class_="ranges")
-        if not ul:
-            return
+        if ul:
+            containers.append(ul)
+        for sec in soup.find_all(["section", "div"], id=re.compile(r"company.ratio", re.I)):
+            containers.append(sec)
+        for sec in soup.find_all(["section", "div"], class_=re.compile(r"company.ratio", re.I)):
+            if sec not in containers:
+                containers.append(sec)
 
-        for li in ul.find_all("li"):
-            name_s = li.find("span", class_="name")
-            val_s  = li.find("span", class_="number")
-            if not name_s or not val_s:
-                continue
+        seen: set = set()
+        for container in containers:
+            for item in container.find_all(["li", "div", "td"], recursive=True):
+                name_s = item.find("span", class_="name")
+                val_s  = item.find("span", class_="number")
+                if not name_s or not val_s:
+                    continue
+                name = name_s.get_text(strip=True).lower()
+                if name in seen:
+                    continue
+                seen.add(name)
+                raw  = val_s.get_text(strip=True)
+                num  = self._num(raw)
 
-            name = name_s.get_text(strip=True).lower()
-            raw  = val_s.get_text(strip=True)
-            num  = self._num(raw)
-
-            if "market cap" in name:
-                data["market_cap_str"] = raw
-                data["market_cap_cr"]  = self._parse_cr(raw)
-
-            elif "current price" in name:
-                data["current_price"] = num
-
-            elif "high" in name and "low" in name:
-                cleaned = re.sub(r"[₹,\s]", "", raw)
-                parts = cleaned.split("/")
-                if len(parts) == 2:
-                    h, l = self._num(parts[0]), self._num(parts[1])
-                    if h: data["high_52w"] = h
-                    if l: data["low_52w"]  = l
-
-            elif "stock p/e" in name or name.strip() == "p/e":
-                data["stock_pe"] = num
-
-            elif "book value" in name:
-                data["book_value"] = num
-
-            elif "dividend yield" in name:
-                data["dividend_yield"] = num
-
-            elif "roce" in name:
-                data["roce"] = num
-
-            elif name.strip() == "roe" or ("return on equity" in name and "net" not in name):
-                data["roe"] = num
-
-            elif "face value" in name:
-                data["face_value"] = num
-
-            elif "p/b" in name or "price to book" in name:
-                data["pb_ratio"] = num
-
-            elif "eps" in name and "growth" not in name:
-                data["eps"] = num
-
-            elif "peg" in name:
-                data["peg_ratio"] = num
+                if "market cap" in name:
+                    data["market_cap_str"] = raw
+                    data["market_cap_cr"]  = self._parse_cr(raw)
+                elif "current price" in name:
+                    data["current_price"] = num
+                elif "high" in name and "low" in name:
+                    cleaned = re.sub(r"[₹,\s]", "", raw)
+                    parts = cleaned.split("/")
+                    if len(parts) == 2:
+                        h, l = self._num(parts[0]), self._num(parts[1])
+                        if h: data["high_52w"] = h
+                        if l: data["low_52w"]  = l
+                elif "stock p/e" in name or name.strip() == "p/e":
+                    data["stock_pe"] = num
+                elif "book value" in name:
+                    data["book_value"] = num
+                elif "dividend yield" in name:
+                    data["dividend_yield"] = num
+                elif "roce" in name:
+                    data["roce"] = num
+                elif name.strip() == "roe" or ("return on equity" in name and "net" not in name):
+                    data["roe"] = num
+                elif "face value" in name:
+                    data["face_value"] = num
+                elif "p/b" in name or "price to book" in name:
+                    data["pb_ratio"] = num
+                elif "eps" in name and "growth" not in name:
+                    data["eps"] = num
+                elif "peg" in name:
+                    data["peg_ratio"] = num
+                elif "ev/ebitda" in name or "evebitda" in name or ("ev" in name and "ebitda" in name):
+                    data["ev_ebitda"] = num
 
     def _extract_price_meta(self, soup: BeautifulSoup, data: dict) -> None:
         # Price change %

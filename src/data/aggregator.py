@@ -156,6 +156,7 @@ class DataAggregator:
             pnsps=pnsps,
             price_to_sales=pts,
             peg_ratio=sc.get("peg_ratio"),
+            ev_ebitda=sc.get("ev_ebitda"),
             pronw=pronw,
 
             bse_code=sc.get("bse_code"),
