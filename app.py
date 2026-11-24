@@ -1955,6 +1955,15 @@ def _render_table(stock_list: list):
             "PRONW":                s.pronw,
             "Div Yield %":      s.dividend_yield,
             "Face Value (₹)":   s.face_value,
+            # ── 8 New columns ──
+            "Promoter Pledging %":  s.promoter_pledging,
+            "EPS (₹)":              s.eps,
+            "Enterprise Value (Cr)": s.enterprise_value,
+            "P/E":                  s.stock_pe,
+            "P/ROE":                s.p_roe,
+            "LTVI":                 s.ltvi,
+            "Debt/Equity":          s.debt_equity,
+            "Oper. Profit (Cr)":    s.operating_profit,
         })
         if s.error:
             rows[-1]["Error"] = s.error
@@ -2036,6 +2045,18 @@ def _render_table(stock_list: list):
             "PRONW":                st.column_config.NumberColumn("PRONW", format="%.2f"),
             "Div Yield %":          st.column_config.NumberColumn("Div Yield %", format="%.2f"),
             "Face Value (₹)":       st.column_config.NumberColumn("Face Value (₹)", format="₹%.2f"),
+            # ── 8 New columns ──
+            "Promoter Pledging %":  st.column_config.NumberColumn("Promoter Pledging %", format="%.2f",
+                                        help="% of promoter shares pledged (screener.in login required — currently N/A)"),
+            "EPS (₹)":              st.column_config.NumberColumn("EPS (₹)", format="₹%.2f"),
+            "Enterprise Value (Cr)": st.column_config.NumberColumn("Enterprise Value (Cr)", format="%.0f"),
+            "P/E":                  st.column_config.NumberColumn("P/E", format="%.2f"),
+            "P/ROE":                st.column_config.NumberColumn("P/ROE",  format="%.2f",
+                                        help="P/E ÷ RONW% — quality-adjusted P/E; lower = better value"),
+            "LTVI":                 st.column_config.NumberColumn("LTVI",   format="%.2f",
+                                        help="Long-Term Value Index = P/B + P/E + P/ROE + P/NSPS; lower = cheaper"),
+            "Debt/Equity":          st.column_config.NumberColumn("Debt/Equity", format="%.2f"),
+            "Oper. Profit (Cr)":    st.column_config.NumberColumn("Oper. Profit (Cr)", format="%.0f"),
         },
     )
 

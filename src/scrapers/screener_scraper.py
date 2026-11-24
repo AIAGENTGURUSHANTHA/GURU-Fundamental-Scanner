@@ -300,6 +300,10 @@ class ScreenerScraper(BaseScraper):
             latest = vals[-1]
             if "borrowing" in label:
                 data["borrowings_cr"] = self._num(latest)
+            elif label.strip() in ("equity capital", "share capital"):
+                data["equity_capital_cr"] = self._num(latest)
+            elif "reserves" in label and "revaluation" not in label:
+                data["reserves_cr"] = self._num(latest)
 
     # ── Derived calculations ──────────────────────────────────────────────────
 

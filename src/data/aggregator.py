@@ -119,6 +119,34 @@ class DataAggregator:
         if pts is None and mcap and rev and rev > 0:
             pts = round(mcap / rev, 2)
 
+        # ── New derived metrics ───────────────────────────────────────────────
+        # Enterprise Value = Market Cap + Borrowings (Cr)
+        borrowings_cr = sc.get("borrowings_cr") or 0
+        enterprise_value = round(mcap + borrowings_cr, 1) if mcap else None
+
+        # Debt/Equity = Borrowings / (Equity Capital + Reserves)
+        equity_capital_cr = sc.get("equity_capital_cr") or 0
+        reserves_cr = sc.get("reserves_cr") or 0
+        shareholders_equity = equity_capital_cr + reserves_cr
+        debt_equity = None
+        if borrowings_cr > 0 and shareholders_equity > 0:
+            debt_equity = round(borrowings_cr / shareholders_equity, 2)
+
+        # Operating Profit (Cr)
+        operating_profit = sc.get("operating_profit_cr")
+
+        # P/ROE = P/E / RONW% (quality-adjusted P/E; lower = better value)
+        final_ronw = ronw or roe
+        stock_pe_val = sc.get("stock_pe")
+        p_roe = None
+        if stock_pe_val and final_ronw and final_ronw > 0:
+            p_roe = round(stock_pe_val / final_ronw, 2)
+
+        # LTVI = P/B + P/E + P/ROE + P/NSPS (composite valuation index; lower = cheaper)
+        ltvi = None
+        if pb and stock_pe_val and p_roe and pnsps:
+            ltvi = round(pb + stock_pe_val + p_roe + pnsps, 2)
+
         # ── Determine data source label ───────────────────────────────────────
         if nse and sc:
             source = "NSE (live) + screener.in"
@@ -158,6 +186,12 @@ class DataAggregator:
             peg_ratio=sc.get("peg_ratio"),
             ev_ebitda=sc.get("ev_ebitda"),
             pronw=pronw,
+            p_roe=p_roe,
+            ltvi=ltvi,
+            enterprise_value=enterprise_value,
+            debt_equity=debt_equity,
+            operating_profit=operating_profit,
+            promoter_pledging=None,
 
             bse_code=sc.get("bse_code"),
             nse_code=sc.get("nse_code"),

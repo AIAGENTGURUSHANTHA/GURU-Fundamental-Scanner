@@ -42,9 +42,17 @@ class StockData(BaseModel):
     ev_ebitda: Optional[float] = None
     peg_ratio: Optional[float] = None
     pronw: Optional[float] = None             # Price / RONW%
+    p_roe: Optional[float] = None             # P/E / RONW% (quality-adjusted P/E)
+    ltvi: Optional[float] = None              # P/B + P/E + P/ROE + P/NSPS composite
 
     # Debt
     debt: Optional[float] = None              # Total Debt, Crores
+    enterprise_value: Optional[float] = None  # MCap + Borrowings in Cr
+    debt_equity: Optional[float] = None       # Borrowings / Shareholders Equity
+
+    # Operating metrics
+    operating_profit: Optional[float] = None  # Operating Profit in Cr
+    promoter_pledging: Optional[float] = None # % of promoter shares pledged
 
     # Identifiers
     bse_code: Optional[str] = None
