@@ -12,7 +12,9 @@ class SMCData(BaseModel):
 
     # Trailing swing extremes (trailing.top / trailing.bottom in PineScript)
     swing_high: Optional[float] = None
+    swing_high_date: Optional[str] = None   # date of the confirmed swing-high bar
     swing_low: Optional[float] = None
+    swing_low_date: Optional[str] = None    # date of the confirmed swing-low bar
 
     # Zone boundary prices
     premium_top: Optional[float] = None      # = swing_high

@@ -2189,8 +2189,7 @@ def _render_etf_ema_table(ema_list: list) -> None:
     c1, c2, c3 = st.columns(3)
     c1.metric("ETFs Scanned",    len(df))
     c2.metric("Data Retrieved",  int(retrieved))
-    c3.metric("Trading Day",     latest_ref)
-
+    c3.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     st.markdown("---")
     ec1, ec2, *_ = st.columns([1, 1, 4])
     with ec1:
@@ -2856,7 +2855,7 @@ def _render_dma_table(dma_list: list):
     c1, c2, c3 = st.columns(3)
     c1.metric("Stocks Scanned",  len(df))
     c2.metric("Data Retrieved",  int(retrieved))
-    c3.metric("Trading Day Used", latest_ref)
+    c3.metric("Trading Day Used", latest_ref, help=f"Trading day used for analysis: {latest_ref}")
 
     st.markdown("---")
 
@@ -3253,7 +3252,7 @@ def _render_ema_table(ema_list: list):
     c1, c2, c3 = st.columns(3)
     c1.metric("Stocks Scanned",   len(df))
     c2.metric("Data Retrieved",   int(retrieved))
-    c3.metric("Trading Day Used", latest_ref)
+    c3.metric("Trading Day Used", latest_ref, help=f"Trading day used for analysis: {latest_ref}")
 
     st.markdown("---")
 
@@ -3753,7 +3752,7 @@ def _render_guru_buy_table(guru_list: list):
     c1.metric("Stocks Scanned",   len(df))
     c2.metric("Data Retrieved",   int(retrieved))
     c3.metric("🟢 BUY signals",   int(buy_total))
-    c4.metric("Trading Day",      latest_ref)
+    c4.metric("Trading Day",      latest_ref, help=f"Trading day used for analysis: {latest_ref}")
 
     st.markdown("---")
 
@@ -4202,7 +4201,9 @@ def _render_smc_table(smc_list: list):
             "Day Low":             d.day_low,
             "Discount ↑":          d.discount_top,
             "Swing High":          d.swing_high,
+            "SH Date":             d.swing_high_date or "",
             "Swing Low":           d.swing_low,
+            "SL Date":             d.swing_low_date or "",
             "Premium ↓":           d.premium_bottom,
             "Eq Top":              d.eq_top,
             "Eq Bottom":           d.eq_bottom,
@@ -4304,7 +4305,7 @@ def _render_smc_table(smc_list: list):
     c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
     c1.metric("Stocks Scanned",      len(df))
     c2.metric("Data Retrieved",      int(retrieved))
-    c3.metric("Trading Day",         latest_ref)
+    c3.metric("Trading Day",         latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c4.metric("💚 Discount Zone",    int(discount_ct))
     c5.metric("🔴 Premium Zone",     int(premium_ct))
     c6.metric("✅ Reached Discount", int(reached_ct))
@@ -4349,7 +4350,9 @@ def _render_smc_table(smc_list: list):
             "Day Low":             num_col("Day Low",   format="₹%.2f"),
             "Discount ↑":          num_col("Discount ↑", format="₹%.2f"),
             "Swing High":          num_col("Swing High",  format="₹%.2f"),
+            "SH Date":             txt_col("SH Date",     width="small"),
             "Swing Low":           num_col("Swing Low",   format="₹%.2f"),
+            "SL Date":             txt_col("SL Date",     width="small"),
             "Premium ↓":           num_col("Premium ↓",   format="₹%.2f"),
             "Eq Top":              num_col("Eq Top",      format="₹%.2f"),
             "Eq Bottom":           num_col("Eq Bottom",   format="₹%.2f"),
@@ -4388,7 +4391,9 @@ def _render_smc_table(smc_list: list):
             "Day Low":             d.day_low,
             "Discount ↑":          d.discount_top,
             "Swing High":          d.swing_high,
+            "SH Date":             d.swing_high_date or "",
             "Swing Low":           d.swing_low,
+            "SL Date":             d.swing_low_date or "",
         } for d in items]
         mdf = pd.DataFrame(mini_rows)
         mini_evt = st.dataframe(
@@ -4407,7 +4412,9 @@ def _render_smc_table(smc_list: list):
                 "Day Low":            num_col("Day Low",   format="₹%.2f"),
                 "Discount ↑":         num_col("Discount ↑", format="₹%.2f"),
                 "Swing High":         num_col("Swing High", format="₹%.2f"),
+                "SH Date":            txt_col("SH Date",    width="small"),
                 "Swing Low":          num_col("Swing Low",  format="₹%.2f"),
+                "SL Date":            txt_col("SL Date",    width="small"),
             },
         )
         # Row selection navigation
@@ -4676,7 +4683,7 @@ def _render_daily_dukaan():
     # Summary metrics
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Symbols Scanned", len(data))
-    c2.metric("Trading Day",     latest_ref)
+    c2.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
@@ -5036,7 +5043,7 @@ def _render_ll_etf():
     # Summary metrics
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Symbols Scanned", len(data))
-    c2.metric("Trading Day",     latest_ref)
+    c2.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
@@ -5418,7 +5425,7 @@ def _render_eff():
     # Summary metrics
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Symbols Scanned", len(data))
-    c2.metric("Trading Day",     latest_ref)
+    c2.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))

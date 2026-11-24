@@ -194,6 +194,10 @@ class SMCFetcher:
 
         sh_idx, sl_idx = cls._find_swing_extremes(highs, lows, swing_size)
 
+        # Date of the confirmed swing bar (used for display)
+        swing_high_date = str(highs.index[sh_idx].date()) if sh_idx is not None else None
+        swing_low_date  = str(lows.index[sl_idx].date())  if sl_idx is not None else None
+
         # trailing.top  = max(all highs from last swing high → current bar)
         # trailing.bottom = min(all lows from last swing low  → current bar)
         trailing_top    = round(float(highs.iloc[sh_idx:].max()), 2) if sh_idx is not None else round(float(highs.max()), 2)
@@ -261,7 +265,9 @@ class SMCFetcher:
             ref_date=actual_date,
             current_price=current_price,
             swing_high=top,
+            swing_high_date=swing_high_date,
             swing_low=bot,
+            swing_low_date=swing_low_date,
             premium_top=top,
             premium_bottom=premium_bottom_price,
             eq_top=eq_top_price,
