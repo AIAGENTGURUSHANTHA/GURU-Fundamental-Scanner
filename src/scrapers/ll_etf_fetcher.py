@@ -149,7 +149,7 @@ class LLETFFetcher:
                 diff_5y=diff_5y,
                 pct_vs_5y=pct_vs_5y,
                 data_source=data_src,
-                fetched_at=datetime.utcnow(),
+                fetched_at=datetime.now(_IST),
             )
 
         except Exception as exc:

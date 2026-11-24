@@ -151,7 +151,7 @@ class EMAFetcher:
             ema100=emas[100], ema200=emas[200],
             above_ema_count=above_count,
             data_source="Yahoo Finance (NSE)",
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(_IST),
         )
 
     def _fetch_nsepython_price(self, sym: str, ref_date: date) -> Tuple[Optional[str], Optional[float]]:

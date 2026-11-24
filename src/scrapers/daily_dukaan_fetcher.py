@@ -168,5 +168,5 @@ class DailyDukaanFetcher:
             price_vs_dma20=price_vs_dma20,
             pct_vs_dma20=pct_vs_dma20,
             data_source=source,
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(_IST),
         )

@@ -7,7 +7,15 @@ import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
+
+# Indian Standard Time — used for all displayed timestamps
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _now_ist() -> datetime:
+    """Current datetime in IST (works correctly on cloud servers running UTC)."""
+    return datetime.now(IST)
 from pathlib import Path
 from typing import Optional
 
@@ -278,14 +286,21 @@ def _load_dma_session(s: dict) -> None:
     st.session_state.dma_last_scan_symbols = [r.symbol for r in results]
 
 
-def _fmt_fetched_at() -> str:
-    """Return a human-readable 'Fetched at' string from session state."""
-    ts = st.session_state.get("last_fetched_at")
-    if not ts:
+def _fmt_ts(ts: datetime) -> str:
+    """Format a datetime (tz-aware or naive) as a readable IST string."""
+    if ts is None:
         return ""
+    # Ensure IST — convert if tz-aware, assume IST if naive (legacy values)
+    if ts.tzinfo is not None:
+        ts = ts.astimezone(IST)
     hour = ts.hour % 12 or 12
     ampm = "a.m." if ts.hour < 12 else "p.m."
-    return f"{ts.day} {ts.strftime('%b %Y')}, {hour}:{ts.strftime('%M')} {ampm}"
+    return f"{ts.day} {ts.strftime('%b %Y')}, {hour}:{ts.strftime('%M')} {ampm} IST"
+
+
+def _fmt_fetched_at() -> str:
+    """Return a human-readable 'Fetched at' string from session state."""
+    return _fmt_ts(st.session_state.get("last_fetched_at"))
 
 
 def _do_fetch(symbols: list, scan_name: str, save_to_history: bool = False) -> None:
@@ -303,7 +318,7 @@ def _do_fetch(symbols: list, scan_name: str, save_to_history: bool = False) -> N
     slot.empty()
 
     st.session_state.stock_data = results
-    st.session_state.last_fetched_at = datetime.now()
+    st.session_state.last_fetched_at = _now_ist()
     st.session_state.last_scan_symbols = symbols
 
     # Only save file-upload scans to history (once); never on refresh or single-stock lookups
@@ -417,7 +432,7 @@ def _do_dma_fetch(symbols: list, scan_name: str, ref_date=None,
         st.warning(f"⚠️ Could not fetch NSE prices: {exc}")
 
     st.session_state.dma_data = results
-    st.session_state.dma_last_fetched_at = datetime.now()
+    st.session_state.dma_last_fetched_at = _now_ist()
     st.session_state.dma_last_scan_symbols = symbols
     st.session_state.dma_active_scan_name = scan_name
 
@@ -546,7 +561,7 @@ def _do_ema_fetch(symbols: list, scan_name: str, ref_date=None,
         st.warning(f"⚠️ Could not fetch NSE prices: {exc}")
 
     st.session_state.ema_data = results
-    st.session_state.ema_last_fetched_at = datetime.now()
+    st.session_state.ema_last_fetched_at = _now_ist()
     st.session_state.ema_last_scan_symbols = symbols
     st.session_state.ema_active_scan_name = scan_name
 
@@ -668,7 +683,7 @@ def _do_guru_buy_fetch(symbols: list, scan_name: str, ref_date=None,
         st.warning(f"⚠️ Could not fetch NSE prices: {exc}")
 
     st.session_state.guru_data = results
-    st.session_state.guru_last_fetched_at = datetime.now()
+    st.session_state.guru_last_fetched_at = _now_ist()
     st.session_state.guru_last_scan_symbols = symbols
     st.session_state.guru_active_scan_name = scan_name
 
@@ -836,7 +851,7 @@ def _do_dd_fetch(symbols: list, scan_name: str, ref_date=None,
         st.warning(f"⚠️ Could not fetch NSE prices: {exc}")
 
     st.session_state.dd_data              = results
-    st.session_state.dd_last_fetched_at   = datetime.now()
+    st.session_state.dd_last_fetched_at   = _now_ist()
     st.session_state.dd_last_scan_symbols = symbols
     st.session_state.dd_active_scan_name  = scan_name
 
@@ -963,7 +978,7 @@ def _do_smc_fetch(symbols: list, scan_name: str, ref_date=None,
         st.warning(f"⚠️ Could not fetch NSE prices: {exc}")
 
     st.session_state.smc_data = results
-    st.session_state.smc_last_fetched_at = datetime.now()
+    st.session_state.smc_last_fetched_at = _now_ist()
     st.session_state.smc_last_scan_symbols = symbols
     st.session_state.smc_active_scan_name = scan_name
     # Persist alert stocks (Discount / Near Discount zone + Bullish FVG) across reruns — after enrichment
@@ -1099,7 +1114,7 @@ def _do_ll_etf_fetch(symbols: list, scan_name: str, ref_date=None,
         st.warning(f"⚠️ Could not fetch NSE prices: {exc}")
 
     st.session_state.ll_etf_data              = results
-    st.session_state.ll_etf_last_fetched_at   = datetime.now()
+    st.session_state.ll_etf_last_fetched_at   = _now_ist()
     st.session_state.ll_etf_last_scan_symbols = symbols
     st.session_state.ll_etf_active_scan_name  = scan_name
 
@@ -1233,7 +1248,7 @@ def _do_eff_fetch(symbols: list, scan_name: str, ref_date=None,
         st.warning(f"⚠️ Could not fetch NSE prices: {exc}")
 
     st.session_state.eff_data              = results
-    st.session_state.eff_last_fetched_at   = datetime.now()
+    st.session_state.eff_last_fetched_at   = _now_ist()
     st.session_state.eff_last_scan_symbols = symbols
     st.session_state.eff_active_scan_name  = scan_name
 
@@ -1253,7 +1268,7 @@ def _do_etf_live_fetch() -> None:
     try:
         etf_list, summary = ETFFetcher().fetch_live_list()
         st.session_state.etf_live_data       = etf_list
-        st.session_state.etf_live_fetched_at = datetime.now()
+        st.session_state.etf_live_fetched_at = _now_ist()
         st.session_state.etf_live_summary    = summary
         slot.empty()
     except Exception as exc:
@@ -1300,7 +1315,7 @@ def _do_etf_ema_fetch(symbols: list, scan_name: str, ref_date=None,
         results = [results_map.get(s, _EMAD(symbol=s, error="Not fetched")) for s in symbols]
 
     st.session_state.etf_ema_data              = results
-    st.session_state.etf_ema_last_fetched_at   = datetime.now()
+    st.session_state.etf_ema_last_fetched_at   = _now_ist()
     st.session_state.etf_ema_last_scan_symbols = symbols
     st.session_state.etf_ema_active_scan_name  = scan_name
 
@@ -1664,7 +1679,7 @@ def render_dashboard():
         with c2:
             st.caption("Use NSE symbols. Single stock → detailed card view. Multiple → table.")
         if scan_btn and txt.strip():
-            st.session_state["_pending_scan_name"] = f"Manual — {datetime.now().strftime('%d %b %H:%M')}"
+            st.session_state["_pending_scan_name"] = f"Manual — {_now_ist().strftime('%d %b %H:%M')}"
             st.session_state["_is_file_upload"] = False
             symbols = _parser.parse_text_input(txt)
 
@@ -1965,7 +1980,7 @@ def _render_table(stock_list: list):
     with ec1:
         st.download_button(
             "📥 CSV", df.to_csv(index=False).encode(),
-            f"guru_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+            f"guru_scan_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
         )
     with ec2:
         try:
@@ -1973,7 +1988,7 @@ def _render_table(stock_list: list):
             buf = io.BytesIO()
             df.to_excel(buf, index=False, engine="openpyxl")
             st.download_button("📥 Excel", buf.getvalue(),
-                               f"guru_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
+                               f"guru_scan_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx")
         except Exception:
             pass
 
@@ -2179,7 +2194,7 @@ def _render_etf_ema_table(ema_list: list) -> None:
     with ec1:
         st.download_button(
             "📥 CSV", df.to_csv(index=False).encode(),
-            f"etf_ema_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+            f"etf_ema_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
             key="etf_ema_csv_dl",
         )
     with ec2:
@@ -2188,7 +2203,7 @@ def _render_etf_ema_table(ema_list: list) -> None:
             buf = io.BytesIO()
             df.to_excel(buf, index=False, engine="openpyxl")
             st.download_button("📥 Excel", buf.getvalue(),
-                               f"etf_ema_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                               f"etf_ema_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
                                key="etf_ema_xls_dl")
         except Exception:
             pass
@@ -2321,7 +2336,7 @@ def _render_etf_analysis():
                         ref = st.session_state.get("etf_ema_date_picker") or today
                         _do_etf_ema_fetch(
                             selected_syms,
-                            f"ETF EMA — {datetime.now().strftime('%d %b %H:%M')}",
+                            f"ETF EMA — {_now_ist().strftime('%d %b %H:%M')}",
                             ref_date=ref, scheme_map=scheme_map,
                         )
                         st.rerun()
@@ -2335,7 +2350,7 @@ def _render_etf_analysis():
                 ref = st.session_state.get("etf_ema_date_picker") or today
                 _do_etf_ema_fetch(
                     [d.symbol for d in live_data if not d.error],
-                    f"ETF EMA All — {datetime.now().strftime('%d %b %H:%M')}",
+                    f"ETF EMA All — {_now_ist().strftime('%d %b %H:%M')}",
                     ref_date=ref, scheme_map=scheme_map,
                 )
                 st.rerun()
@@ -2391,7 +2406,7 @@ def _render_etf_analysis():
         with c2:
             st.caption("Use NSE ETF symbols. Data fetched from Yahoo Finance (NSE: prefix applied internally).")
         if scan_btn and txt.strip():
-            st.session_state["_etf_pending_scan_name"] = f"ETF EMA — {datetime.now().strftime('%d %b %H:%M')}"
+            st.session_state["_etf_pending_scan_name"] = f"ETF EMA — {_now_ist().strftime('%d %b %H:%M')}"
             symbols = _parser.parse_text_input(txt)
 
     with input_tabs[1]:
@@ -2435,10 +2450,10 @@ def _render_etf_analysis():
             if st.session_state.pop("_etf_sel_all", False):
                 # mark all ETFs for scanning
                 symbols = live_syms
-                st.session_state["_etf_pending_scan_name"] = f"ETF EMA All — {datetime.now().strftime('%d %b %H:%M')}"
+                st.session_state["_etf_pending_scan_name"] = f"ETF EMA All — {_now_ist().strftime('%d %b %H:%M')}"
             elif run_live and chosen:
                 symbols = chosen
-                st.session_state["_etf_pending_scan_name"] = f"ETF EMA — {datetime.now().strftime('%d %b %H:%M')}"
+                st.session_state["_etf_pending_scan_name"] = f"ETF EMA — {_now_ist().strftime('%d %b %H:%M')}"
 
     # ── Trigger scan ──────────────────────────────────────────────────────────
     if symbols:
@@ -2557,7 +2572,7 @@ def _render_dma_analysis():
         with c2:
             st.caption("Use NSE symbols. Data fetched from Yahoo Finance (NSE: prefix applied internally).")
         if scan_btn and txt.strip():
-            st.session_state["_dma_pending_scan_name"] = f"DMA — {datetime.now().strftime('%d %b %H:%M')}"
+            st.session_state["_dma_pending_scan_name"] = f"DMA — {_now_ist().strftime('%d %b %H:%M')}"
             st.session_state["_dma_is_file_upload"] = False
             symbols = _parser.parse_text_input(txt)
 
@@ -2848,7 +2863,7 @@ def _render_dma_table(dma_list: list):
     with ec1:
         st.download_button(
             "📥 CSV", df.to_csv(index=False).encode(),
-            f"dma_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+            f"dma_scan_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
             key="dma_csv_dl",
         )
     with ec2:
@@ -2857,7 +2872,7 @@ def _render_dma_table(dma_list: list):
             buf = io.BytesIO()
             df.to_excel(buf, index=False, engine="openpyxl")
             st.download_button("📥 Excel", buf.getvalue(),
-                               f"dma_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                               f"dma_scan_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
                                key="dma_xls_dl")
         except Exception:
             pass
@@ -2976,7 +2991,7 @@ def _render_ema_analysis():
         with c2:
             st.caption("Use NSE symbols. EMA data fetched from Yahoo Finance.")
         if scan_btn and txt.strip():
-            st.session_state["_ema_pending_scan_name"] = f"EMA — {datetime.now().strftime('%d %b %H:%M')}"
+            st.session_state["_ema_pending_scan_name"] = f"EMA — {_now_ist().strftime('%d %b %H:%M')}"
             st.session_state["_ema_is_file_upload"] = False
             symbols = _parser.parse_text_input(txt)
 
@@ -3244,7 +3259,7 @@ def _render_ema_table(ema_list: list):
     with ec1:
         st.download_button(
             "📥 CSV", df.to_csv(index=False).encode(),
-            f"ema_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+            f"ema_scan_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
             key="ema_csv_dl",
         )
     with ec2:
@@ -3253,7 +3268,7 @@ def _render_ema_table(ema_list: list):
             buf = io.BytesIO()
             df.to_excel(buf, index=False, engine="openpyxl")
             st.download_button("📥 Excel", buf.getvalue(),
-                               f"ema_scan_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                               f"ema_scan_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
                                key="ema_xls_dl")
         except Exception:
             pass
@@ -3380,7 +3395,7 @@ def _render_guru_buy_analysis():
         with c2:
             st.caption("Rainbow EMA(2)×7 indicator — based on Pine Script logic.")
         if scan_btn and txt.strip():
-            st.session_state["_guru_pending"] = f"GURU BUY — {datetime.now().strftime('%d %b %H:%M')}"
+            st.session_state["_guru_pending"] = f"GURU BUY — {_now_ist().strftime('%d %b %H:%M')}"
             st.session_state["_guru_is_file"] = False
             symbols = _parser.parse_text_input(txt)
 
@@ -3593,7 +3608,7 @@ def _render_guru_zone_table(items: list, zone_key: str):
     with ec1:
         st.download_button(
             "📥 CSV", zdf.to_csv(index=False).encode(),
-            f"guru_{zone_key}_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+            f"guru_{zone_key}_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
             key=f"{zone_key}_csv_dl",
         )
     with ec2:
@@ -3602,7 +3617,7 @@ def _render_guru_zone_table(items: list, zone_key: str):
             _buf = _io.BytesIO()
             zdf.to_excel(_buf, index=False, engine="openpyxl")
             st.download_button("📥 Excel", _buf.getvalue(),
-                               f"guru_{zone_key}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                               f"guru_{zone_key}_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
                                key=f"{zone_key}_xls_dl")
         except Exception:
             pass
@@ -3745,7 +3760,7 @@ def _render_guru_buy_table(guru_list: list):
     with ec1:
         st.download_button(
             "📥 CSV", df.to_csv(index=False).encode(),
-            f"guru_buy_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+            f"guru_buy_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
             key="guru_csv_dl",
         )
     with ec2:
@@ -3754,7 +3769,7 @@ def _render_guru_buy_table(guru_list: list):
             buf = io.BytesIO()
             df.to_excel(buf, index=False, engine="openpyxl")
             st.download_button("📥 Excel", buf.getvalue(),
-                               f"guru_buy_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                               f"guru_buy_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
                                key="guru_xls_dl")
         except Exception:
             pass
@@ -3926,7 +3941,7 @@ def _render_smc_analysis():
         with c2:
             st.caption("Use NSE symbols. Data fetched from Yahoo Finance — same source as the LuxAlgo SMC indicator.")
         if scan_btn and txt.strip():
-            st.session_state["_smc_pending_scan_name"] = f"SMC — {datetime.now().strftime('%d %b %H:%M')}"
+            st.session_state["_smc_pending_scan_name"] = f"SMC — {_now_ist().strftime('%d %b %H:%M')}"
             st.session_state["_smc_is_file_upload"] = False
             symbols = _parser.parse_text_input(txt)
 
@@ -4301,7 +4316,7 @@ def _render_smc_table(smc_list: list):
     with ec1:
         st.download_button(
             "📥 CSV", df.to_csv(index=False).encode(),
-            f"smc_zones_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+            f"smc_zones_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
             key="smc_csv_dl",
         )
     with ec2:
@@ -4310,7 +4325,7 @@ def _render_smc_table(smc_list: list):
             buf = io.BytesIO()
             df.to_excel(buf, index=False, engine="openpyxl")
             st.download_button("📥 Excel", buf.getvalue(),
-                               f"smc_zones_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                               f"smc_zones_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
                                key="smc_xls_dl")
         except Exception:
             pass
@@ -4565,7 +4580,7 @@ def _render_daily_dukaan():
         with c2:
             st.caption("Use NSE symbols (stocks or ETFs). Data fetched from NSE India.")
         if scan_btn and txt.strip():
-            st.session_state["_dd_pending_scan_name"] = f"Daily Dukaan — {datetime.now().strftime('%d %b %H:%M')}"
+            st.session_state["_dd_pending_scan_name"] = f"Daily Dukaan — {_now_ist().strftime('%d %b %H:%M')}"
             st.session_state["_dd_is_file_upload"]    = False
             symbols = _parser.parse_text_input(txt)
 
@@ -4662,7 +4677,7 @@ def _render_daily_dukaan():
     c2.metric("Trading Day",     latest_ref)
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
-        c4.metric("Last Fetched", fetched_at.strftime("%H:%M"))
+        c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
 
     # Refresh + Live buttons + market status badge
     rb1, rb2, rb3 = st.columns([1, 1, 4])
@@ -4957,7 +4972,7 @@ def _render_ll_etf():
         with c2:
             st.caption("Use NSE symbols. Current price via NSE India · 5-year history via Yahoo Finance.")
         if scan_btn and txt.strip():
-            st.session_state["_ll_etf_pending_scan_name"] = f"Life Long ETF — {datetime.now().strftime('%d %b %H:%M')}"
+            st.session_state["_ll_etf_pending_scan_name"] = f"Life Long ETF — {_now_ist().strftime('%d %b %H:%M')}"
             st.session_state["_ll_etf_is_file_upload"]    = False
             symbols = _parser.parse_text_input(txt)
 
@@ -5022,7 +5037,7 @@ def _render_ll_etf():
     c2.metric("Trading Day",     latest_ref)
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
-        c4.metric("Last Fetched", fetched_at.strftime("%H:%M"))
+        c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
 
     # Refresh + Live buttons
     rb1, rb2, rb3 = st.columns([1, 1, 4])
@@ -5085,7 +5100,7 @@ def _render_ll_etf_table(data: list) -> None:
         with ec1:
             st.download_button(
                 "📥 CSV", df.to_csv(index=False).encode(),
-                f"ll_etf_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+                f"ll_etf_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
                 key="ll_etf_csv_dl",
             )
         with ec2:
@@ -5094,7 +5109,7 @@ def _render_ll_etf_table(data: list) -> None:
                 buf = io.BytesIO()
                 df.to_excel(buf, index=False, engine="openpyxl")
                 st.download_button("📥 Excel", buf.getvalue(),
-                                   f"ll_etf_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                                   f"ll_etf_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
                                    key="ll_etf_xls_dl")
             except Exception:
                 pass
@@ -5339,7 +5354,7 @@ def _render_eff():
         with c2:
             st.caption("Use NSE symbols. Current price via NSE India · 5-year history via Yahoo Finance.")
         if scan_btn and txt.strip():
-            st.session_state["_eff_pending_scan_name"] = f"Eshwarana Fruit Forest — {datetime.now().strftime('%d %b %H:%M')}"
+            st.session_state["_eff_pending_scan_name"] = f"Eshwarana Fruit Forest — {_now_ist().strftime('%d %b %H:%M')}"
             st.session_state["_eff_is_file_upload"]    = False
             symbols = _parser.parse_text_input(txt)
 
@@ -5404,7 +5419,7 @@ def _render_eff():
     c2.metric("Trading Day",     latest_ref)
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
-        c4.metric("Last Fetched", fetched_at.strftime("%H:%M"))
+        c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
 
     # Refresh + Live buttons
     rb1, rb2, rb3 = st.columns([1, 1, 4])
@@ -5467,7 +5482,7 @@ def _render_eff_table(data: list) -> None:
         with ec1:
             st.download_button(
                 "📥 CSV", df.to_csv(index=False).encode(),
-                f"eff_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+                f"eff_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
                 key="eff_csv_dl",
             )
         with ec2:
@@ -5476,7 +5491,7 @@ def _render_eff_table(data: list) -> None:
                 buf = io.BytesIO()
                 df.to_excel(buf, index=False, engine="openpyxl")
                 st.download_button("📥 Excel", buf.getvalue(),
-                                   f"eff_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+                                   f"eff_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
                                    key="eff_xls_dl")
             except Exception:
                 pass

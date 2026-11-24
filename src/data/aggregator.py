@@ -1,5 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from datetime import timezone as _tz_import
+_IST = timezone(timedelta(hours=5, minutes=30))
 from typing import List
 
 from src.data.cache_manager import cache_manager
@@ -160,5 +162,5 @@ class DataAggregator:
             nse_code=sc.get("nse_code"),
 
             data_source=source,
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(_IST),
         )
