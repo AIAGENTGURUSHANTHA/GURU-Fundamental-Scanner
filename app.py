@@ -4201,9 +4201,9 @@ def _render_smc_table(smc_list: list):
             "Day Low":             d.day_low,
             "Discount ↑":          d.discount_top,
             "Swing High":          d.swing_high,
-            "SH Date":             d.swing_high_date or "",
+            "SH Date":             getattr(d, "swing_high_date", None) or "",
             "Swing Low":           d.swing_low,
-            "SL Date":             d.swing_low_date or "",
+            "SL Date":             getattr(d, "swing_low_date", None) or "",
             "Premium ↓":           d.premium_bottom,
             "Eq Top":              d.eq_top,
             "Eq Bottom":           d.eq_bottom,
@@ -4391,9 +4391,9 @@ def _render_smc_table(smc_list: list):
             "Day Low":             d.day_low,
             "Discount ↑":          d.discount_top,
             "Swing High":          d.swing_high,
-            "SH Date":             d.swing_high_date or "",
+            "SH Date":             getattr(d, "swing_high_date", None) or "",
             "Swing Low":           d.swing_low,
-            "SL Date":             d.swing_low_date or "",
+            "SL Date":             getattr(d, "swing_low_date", None) or "",
         } for d in items]
         mdf = pd.DataFrame(mini_rows)
         mini_evt = st.dataframe(
