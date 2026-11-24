@@ -42,8 +42,8 @@ class StockData(BaseModel):
     ev_ebitda: Optional[float] = None
     peg_ratio: Optional[float] = None
     pronw: Optional[float] = None             # Price / RONW%
-    p_roe: Optional[float] = None             # P/E / RONW% (quality-adjusted P/E)
-    ltvi: Optional[float] = None              # P/B + P/E + P/ROE + P/NSPS composite
+    p_roe: Optional[float] = None             # Current Price / ROE% (lower = better value)
+    ltvi: Optional[float] = None              # P/B + P/EPS + P/ROE + P/NSPS composite
 
     # Debt
     debt: Optional[float] = None              # Total Debt, Crores

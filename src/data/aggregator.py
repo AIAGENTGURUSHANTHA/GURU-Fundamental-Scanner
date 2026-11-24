@@ -135,17 +135,22 @@ class DataAggregator:
         # Operating Profit (Cr)
         operating_profit = sc.get("operating_profit_cr")
 
-        # P/ROE = P/E / RONW% (quality-adjusted P/E; lower = better value)
-        final_ronw = ronw or roe
-        stock_pe_val = sc.get("stock_pe")
+        # P/ROE = Current Price / ROE%
+        final_roe = roe or ronw
         p_roe = None
-        if stock_pe_val and final_ronw and final_ronw > 0:
-            p_roe = round(stock_pe_val / final_ronw, 2)
+        if price and final_roe and final_roe > 0:
+            p_roe = round(price / final_roe, 2)
 
-        # LTVI = P/B + P/E + P/ROE + P/NSPS (composite valuation index; lower = cheaper)
+        # P/EPS = Current Price / EPS (for LTVI)
+        eps_val = sc.get("eps") or sc.get("eps_ttm")
+        p_eps = None
+        if price and eps_val and eps_val > 0:
+            p_eps = round(price / eps_val, 2)
+
+        # LTVI = P/B + P/EPS + P/ROE + P/NSPS (composite valuation index; lower = cheaper)
         ltvi = None
-        if pb and stock_pe_val and p_roe and pnsps:
-            ltvi = round(pb + stock_pe_val + p_roe + pnsps, 2)
+        if pb and p_eps and p_roe and pnsps:
+            ltvi = round(pb + p_eps + p_roe + pnsps, 2)
 
         # ── Determine data source label ───────────────────────────────────────
         if nse and sc:
