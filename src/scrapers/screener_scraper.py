@@ -108,8 +108,11 @@ class ScreenerScraper(BaseScraper):
     def fetch_company_data(self, symbol: str) -> Optional[Dict[str, Any]]:
         self._ensure_session()
         sym = symbol.strip().upper()
-        # Always use the consolidated URL — e.g. /company/BAJAJ-AUTO/
-        return self._fetch_page(sym, "")
+        # Try consolidated view first — matches screener website default and gives richer data
+        data = self._fetch_page(sym, "consolidated/")
+        if data is None:
+            data = self._fetch_page(sym, "")
+        return data
 
     # ── Page fetch ────────────────────────────────────────────────────────────
 
@@ -140,6 +143,7 @@ class ScreenerScraper(BaseScraper):
             self._extract_ratios_table(soup, data)
             self._extract_pl_table(soup, data)
             self._extract_balance_sheet(soup, data)
+            self._extract_quarterly(soup, data)
             self._fetch_pledging(data)
             self._calculate_derived(data)
 
@@ -338,7 +342,8 @@ class ScreenerScraper(BaseScraper):
                 data["other_income_cr"] = self._num(latest_ann)
             elif "depreciation" in label:
                 data["depreciation_cr"] = self._num(latest_ann)
-            elif label.strip() == "eps" or ("eps" in label and "growth" not in label and "eps_ttm" not in data):
+            elif label.strip() == "eps" or ("eps" in label and "growth" not in label and "eps_ttm" not in data
+                                             and "dilut" not in label):
                 data["eps_ttm"] = self._num(latest)
                 # Collect annual positive EPS history for PEG CAGR calculation
                 hist = []
@@ -373,6 +378,38 @@ class ScreenerScraper(BaseScraper):
                 data["equity_capital_cr"] = self._num(latest)
             elif "reserves" in label and "revaluation" not in label:
                 data["reserves_cr"] = self._num(latest)
+
+    # ── Quarterly extraction ──────────────────────────────────────────────────
+
+    def _extract_quarterly(self, soup: BeautifulSoup, data: dict) -> None:
+        section = soup.find(id="quarters")
+        if not section:
+            return
+        table = section.find("table")
+        if not table:
+            return
+        rows = table.find_all("tr")
+        if not rows:
+            return
+        for row in rows:
+            cells = row.find_all(["td", "th"])
+            if not cells:
+                continue
+            label = cells[0].get_text(strip=True).lower()
+            if "net profit" in label and "npa" not in label:
+                vals = []
+                for c in cells[1:]:
+                    n = self._num(c.get_text(strip=True))
+                    if n is not None:
+                        vals.append(n)
+                # Need at least 5 quarters for YoY comparison (latest vs same qtr 1yr ago)
+                if len(vals) >= 5:
+                    latest = vals[-1]
+                    year_ago = vals[-5]  # 4 quarters back = same quarter last year
+                    if year_ago != 0:
+                        data["qtr_profit_var"] = round((latest - year_ago) / abs(year_ago) * 100, 2)
+                    data["qtr_net_profit_cr"] = latest
+                break
 
     # ── Derived calculations ──────────────────────────────────────────────────
 

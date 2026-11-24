@@ -1947,6 +1947,75 @@ def _render_single_card(s: StockData):
             st.rerun()
 
 
+# ── Filter + Sort toolbar (reusable across all tables) ───────────────────────
+
+def _df_filter_sort(df: pd.DataFrame, key: str) -> pd.DataFrame:
+    """Renders a collapsible filter+sort toolbar above a table, returns the filtered/sorted df."""
+    with st.expander("🔍 Filter & Sort", expanded=False):
+        c1, c2, c3 = st.columns([3, 2, 1])
+        with c1:
+            search = st.text_input(
+                "Search (Symbol / Company)",
+                placeholder="e.g. HDFC or Bank...",
+                key=f"_flt_search_{key}",
+                label_visibility="collapsed",
+            )
+        with c2:
+            numeric_cols = [c for c in df.columns
+                            if pd.api.types.is_numeric_dtype(df[c]) and df[c].notna().any()]
+            sort_by = st.multiselect(
+                "Sort columns",
+                options=numeric_cols,
+                key=f"_flt_sort_{key}",
+                placeholder="Pick column(s) to sort by…",
+                label_visibility="collapsed",
+            )
+        with c3:
+            sort_asc = st.checkbox("Asc ↑", value=False, key=f"_flt_asc_{key}")
+
+        # Numeric range filters — up to 8 populated numeric columns
+        range_candidates = [c for c in numeric_cols if df[c].notna().sum() > 1][:8]
+        active_ranges: list = []
+        if range_candidates:
+            st.markdown("**Range filters** (leave at extremes to include all):")
+            rcols = st.columns(min(4, len(range_candidates)))
+            for i, col in enumerate(range_candidates):
+                col_data = df[col].dropna()
+                if col_data.empty:
+                    continue
+                mn, mx = float(col_data.min()), float(col_data.max())
+                if mn >= mx:
+                    continue
+                with rcols[i % 4]:
+                    rng = st.slider(
+                        col, mn, mx, (mn, mx),
+                        key=f"_flt_rng_{key}_{col}",
+                        format="%.1f",
+                    )
+                    if rng != (mn, mx):
+                        active_ranges.append((col, rng[0], rng[1]))
+
+        # Apply text search
+        if search:
+            mask = pd.Series(False, index=df.index)
+            for col in ("Symbol", "Company", "symbol", "company", "Company Name"):
+                if col in df.columns:
+                    mask |= df[col].astype(str).str.contains(search, case=False, na=False)
+            df = df[mask]
+
+        # Apply range filters
+        for col, lo, hi in active_ranges:
+            df = df[(df[col].isna()) | ((df[col] >= lo) & (df[col] <= hi))]
+
+        # Apply sort
+        if sort_by:
+            valid = [c for c in sort_by if c in df.columns]
+            if valid:
+                df = df.sort_values(valid, ascending=sort_asc)
+
+    return df.reset_index(drop=True)
+
+
 # ── Multi-stock table view ────────────────────────────────────────────────────
 
 def _render_table(stock_list: list):
@@ -1983,11 +2052,17 @@ def _render_table(stock_list: list):
             "LTVI":                 getattr(s, "ltvi", None),
             "Debt/Equity":          getattr(s, "debt_equity", None),
             "Oper. Profit (Cr)":    getattr(s, "operating_profit", None),
+            # ── 4 Additional columns ──
+            "Sales (Cr)":           getattr(s, "sales_cr", None),
+            "Shares (Cr)":          getattr(s, "num_shares_cr", None),
+            "Marking":              getattr(s, "marking", None),
+            "Qtr Profit Var %":     getattr(s, "qtr_profit_var", None),
         })
         if s.error:
             rows[-1]["Error"] = s.error
 
     df = pd.DataFrame(rows)
+    df = _df_filter_sort(df, "fundamentals")
 
     st.markdown("---")
 
@@ -2076,8 +2151,18 @@ def _render_table(stock_list: list):
                                         help="Long-Term Value Index = P/B + P/EPS + P/ROE + P/NSPS; lower = cheaper"),
             "Debt/Equity":          st.column_config.NumberColumn("Debt/Equity", format="%.2f"),
             "Oper. Profit (Cr)":    st.column_config.NumberColumn("Oper. Profit (Cr)", format="%.0f"),
+            # ── 4 Additional columns ──
+            "Sales (Cr)":           st.column_config.NumberColumn("Sales (Cr)", format="%.0f",
+                                        help="Annual/TTM Revenue in Crores"),
+            "Shares (Cr)":          st.column_config.NumberColumn("Shares (Cr)", format="%.2f",
+                                        help="Number of equity shares outstanding in Crores"),
+            "Marking":              st.column_config.NumberColumn("Marking", format="%.2f",
+                                        help="P/E + P/B + Price/Sales + EV/EBITDA — composite overvaluation indicator; lower = cheaper"),
+            "Qtr Profit Var %":     st.column_config.NumberColumn("Qtr Profit Var %", format="%.2f",
+                                        help="Latest quarter Net Profit YoY growth % (same quarter vs 1 year ago)"),
         },
     )
+    st.caption("💡 Drag column headers to reorder. Click headers to sort. Use 🔍 Filter & Sort above for multi-column filtering.")
 
     # Row selection → navigation buttons
     selected_rows = evt.selection.rows if hasattr(evt, "selection") else []
@@ -2161,6 +2246,7 @@ def _render_etf_live_table(etf_list: list) -> list:
         })
 
     df = pd.DataFrame(rows)
+    df = _df_filter_sort(df, "etf_live")
     num_col = st.column_config.NumberColumn
     txt_col = st.column_config.TextColumn
     evt = st.dataframe(
@@ -2269,6 +2355,7 @@ def _render_etf_ema_table(ema_list: list) -> None:
 
     num_col = st.column_config.NumberColumn
     txt_col = st.column_config.TextColumn
+    df = _df_filter_sort(df, "etf_ema")
     evt = st.dataframe(
         df, width="stretch", hide_index=True,
         on_select="rerun", selection_mode="single-row",
@@ -2937,6 +3024,7 @@ def _render_dma_table(dma_list: list):
             pass
 
     num_col = st.column_config.NumberColumn
+    df = _df_filter_sort(df, "dma")
     evt = st.dataframe(
         df, width="stretch", hide_index=True,
         on_select="rerun", selection_mode="single-row",
@@ -3333,6 +3421,7 @@ def _render_ema_table(ema_list: list):
             pass
 
     num_col = st.column_config.NumberColumn
+    df = _df_filter_sort(df, "ema")
     evt = st.dataframe(
         df, width="stretch", hide_index=True,
         on_select="rerun", selection_mode="single-row",
@@ -3683,6 +3772,7 @@ def _render_guru_zone_table(items: list, zone_key: str):
 
     num_col = st.column_config.NumberColumn
     txt_col = st.column_config.TextColumn
+    zdf = _df_filter_sort(zdf, f"guru_zone_{zone_key}")
     zevt = st.dataframe(
         zdf, width="stretch", hide_index=True,
         on_select="rerun", selection_mode="single-row",
@@ -3835,6 +3925,7 @@ def _render_guru_buy_table(guru_list: list):
 
     num_col = st.column_config.NumberColumn
     txt_col = st.column_config.TextColumn
+    df = _df_filter_sort(df, "guru_buy")
     evt = st.dataframe(
         df, width="stretch", hide_index=True,
         on_select="rerun", selection_mode="single-row",
@@ -4393,6 +4484,7 @@ def _render_smc_table(smc_list: list):
 
     num_col = st.column_config.NumberColumn
     txt_col = st.column_config.TextColumn
+    df = _df_filter_sort(df, "smc")
     evt = st.dataframe(
         df, width="stretch", hide_index=True,
         on_select="rerun", selection_mode="single-row",
@@ -4886,6 +4978,7 @@ def _render_daily_dukaan_table(data: list) -> None:
 
     if rows:
         df = pd.DataFrame(rows)
+        df = _df_filter_sort(df, "daily_dukaan")
         num_col = st.column_config.NumberColumn
         txt_col = st.column_config.TextColumn
         st.dataframe(
@@ -5159,6 +5252,7 @@ def _render_ll_etf_table(data: list) -> None:
 
     if rows:
         df = pd.DataFrame(rows)
+        df = _df_filter_sort(df, "ll_etf")
         num_col = st.column_config.NumberColumn
         txt_col = st.column_config.TextColumn
 
@@ -5541,6 +5635,7 @@ def _render_eff_table(data: list) -> None:
 
     if rows:
         df = pd.DataFrame(rows)
+        df = _df_filter_sort(df, "eff")
         num_col = st.column_config.NumberColumn
         txt_col = st.column_config.TextColumn
 

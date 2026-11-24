@@ -135,6 +135,28 @@ class DataAggregator:
         # Operating Profit (Cr)
         operating_profit = sc.get("operating_profit_cr")
 
+        # Sales (annual/TTM revenue)
+        sales_cr = sc.get("revenue_cr")
+
+        # Number of equity shares (Crore units) = Equity Capital Cr / Face Value Rs
+        face_value = sc.get("face_value")
+        num_shares_cr = None
+        if equity_capital_cr > 0 and face_value and face_value > 0:
+            num_shares_cr = round(equity_capital_cr / face_value, 2)
+
+        # Marking = P/E + P/B + Price/Sales + EV/EBITDA (composite overvaluation; lower = cheaper)
+        _mk_pe = sc.get("stock_pe")
+        _mk_ev = sc.get("ev_ebitda")
+        _mk_ps = pts
+        marking = None
+        if pb is not None:
+            _parts = [x for x in [_mk_pe, pb, _mk_ps, _mk_ev] if x is not None]
+            if len(_parts) >= 2:
+                marking = round(sum(_parts), 2)
+
+        # Quarterly profit variation %
+        qtr_profit_var = sc.get("qtr_profit_var")
+
         # P/ROE = Current Price / ROE%
         final_roe = roe or ronw
         p_roe = None
@@ -197,6 +219,10 @@ class DataAggregator:
             debt_equity=debt_equity,
             operating_profit=operating_profit,
             promoter_pledging=sc.get("pledged_pct"),
+            sales_cr=sales_cr,
+            num_shares_cr=num_shares_cr,
+            marking=marking,
+            qtr_profit_var=qtr_profit_var,
 
             bse_code=sc.get("bse_code"),
             nse_code=sc.get("nse_code"),

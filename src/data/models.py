@@ -53,6 +53,10 @@ class StockData(BaseModel):
     # Operating metrics
     operating_profit: Optional[float] = None  # Operating Profit in Cr
     promoter_pledging: Optional[float] = None # % of promoter shares pledged
+    sales_cr: Optional[float] = None           # Annual/TTM Revenue in Crores
+    num_shares_cr: Optional[float] = None      # Equity shares in Crore units (equity_cap/face_val)
+    marking: Optional[float] = None            # P/E + P/B + Price/Sales + EV/EBITDA
+    qtr_profit_var: Optional[float] = None     # Latest quarter YoY net profit growth %
 
     # Identifiers
     bse_code: Optional[str] = None
