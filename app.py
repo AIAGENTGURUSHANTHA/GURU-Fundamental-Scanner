@@ -1669,6 +1669,9 @@ def render_sidebar():
 def render_dashboard():
     st.markdown("## 📈 Fundamental Stock Scanner")
 
+    # Auto-load the most recent saved scan when user returns
+    _auto_restore_scan("stock_data", _load_scan_session, "fundamentals")
+
     tab_manual, tab_file = st.tabs(["📝 Enter Symbols", "📁 Upload File"])
     symbols: list = []
 
@@ -1728,8 +1731,8 @@ def render_dashboard():
         if syms:
             scan_name = st.session_state.get("active_scan_name") or "Refresh"
             st.markdown(f"**Refreshing {len(syms)} symbol(s)…**")
-            # Refresh always bypasses cache so latest PEG/EV/EBITDA data is fetched
-            _do_fetch(syms, scan_name, save_to_history=False, force_refresh=True)
+            # Refresh bypasses cache and saves the fresh data back to the database
+            _do_fetch(syms, scan_name, save_to_history=True, force_refresh=True)
 
     # Render results
     data = st.session_state.stock_data
@@ -2644,7 +2647,7 @@ def _render_dma_analysis():
         if syms:
             scan_name = st.session_state.get("dma_active_scan_name") or "DMA Refresh"
             st.markdown(f"**Refreshing DMA for {len(syms)} symbol(s)…**")
-            _do_dma_fetch(syms, scan_name, ref_date=ref_date_val)
+            _do_dma_fetch(syms, scan_name, ref_date=ref_date_val, save_to_history=True)
             # Snap date picker to actual trading day
             for _rd in st.session_state.get("dma_data", []):
                 if _rd.ref_date and not _rd.error:
@@ -3061,7 +3064,7 @@ def _render_ema_analysis():
         if syms:
             scan_name = st.session_state.get("ema_active_scan_name") or "EMA Refresh"
             st.markdown(f"**Refreshing EMA for {len(syms)} symbol(s)…**")
-            _do_ema_fetch(syms, scan_name, ref_date=ref_date_val)
+            _do_ema_fetch(syms, scan_name, ref_date=ref_date_val, save_to_history=True)
             # Snap date picker to actual trading day
             for _rd in st.session_state.get("ema_data", []):
                 if _rd.ref_date and not _rd.error:
@@ -3462,7 +3465,7 @@ def _render_guru_buy_analysis():
             syms = [d.symbol for d in st.session_state.get("guru_data", [])]
         if syms:
             _do_guru_buy_fetch(syms, st.session_state.get("guru_active_scan_name") or "GURU BUY",
-                               ref_date=ref_date_val)
+                               ref_date=ref_date_val, save_to_history=True)
             # Snap date picker to actual trading day
             for _rd in st.session_state.get("guru_data", []):
                 if _rd.ref_date and not _rd.error:
@@ -4011,7 +4014,7 @@ def _render_smc_analysis():
         if syms:
             scan_name = st.session_state.get("smc_active_scan_name") or "SMC Refresh"
             st.markdown(f"**Refreshing SMC zones for {len(syms)} symbol(s)…**")
-            _do_smc_fetch(syms, scan_name, ref_date=ref_date_val)
+            _do_smc_fetch(syms, scan_name, ref_date=ref_date_val, save_to_history=True)
             # Snap date picker to the actual trading day used
             for _rd in st.session_state.get("smc_data", []):
                 if _rd.ref_date and not _rd.error:
@@ -4663,7 +4666,7 @@ def _render_daily_dukaan():
         if syms:
             scan_name = st.session_state.get("dd_active_scan_name") or "Daily Dukaan Refresh"
             st.markdown(f"**Refreshing 20 DMA for {len(syms)} symbol(s)…**")
-            _do_dd_fetch(syms, scan_name, ref_date=ref_date_val)
+            _do_dd_fetch(syms, scan_name, ref_date=ref_date_val, save_to_history=True)
             _snap_dates2 = [r.ref_date for r in st.session_state.get("dd_data", [])
                             if r.ref_date and not r.error]
             if _snap_dates2:
@@ -5040,7 +5043,7 @@ def _render_ll_etf():
         if syms:
             scan_name = st.session_state.get("ll_etf_active_scan_name") or "Life Long ETF Refresh"
             st.markdown(f"**Refreshing Life Long ETF data for {len(syms)} symbol(s)…**")
-            _do_ll_etf_fetch(syms, scan_name, ref_date=ref_date_val)
+            _do_ll_etf_fetch(syms, scan_name, ref_date=ref_date_val, save_to_history=True)
 
     # ── Render results ────────────────────────────────────────────────────────
     data = st.session_state.get("ll_etf_data", [])
@@ -5422,7 +5425,7 @@ def _render_eff():
         if syms:
             scan_name = st.session_state.get("eff_active_scan_name") or "Eshwarana Fruit Forest Refresh"
             st.markdown(f"**Refreshing Eshwarana Fruit Forest data for {len(syms)} symbol(s)…**")
-            _do_eff_fetch(syms, scan_name, ref_date=ref_date_val)
+            _do_eff_fetch(syms, scan_name, ref_date=ref_date_val, save_to_history=True)
 
     # ── Render results ────────────────────────────────────────────────────────
     data = st.session_state.get("eff_data", [])
