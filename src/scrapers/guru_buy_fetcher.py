@@ -178,7 +178,7 @@ class GURUBuyFetcher:
             buy_count=buy_count,
             guru_signal=guru_signal,
             data_source="Yahoo Finance (NSE)",
-            fetched_at=datetime.now(_IST),
+            fetched_at=datetime.utcnow(),
         )
 
     def _fetch_nsepython_price(self, sym: str, ref_date: date) -> Tuple[Optional[str], Optional[float]]:

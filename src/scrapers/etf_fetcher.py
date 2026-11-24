@@ -262,5 +262,5 @@ class ETFFetcher:
             ema100=emas[100], ema200=emas[200],
             above_ema_count=above_count,
             data_source="Yahoo Finance (NSE)",
-            fetched_at=datetime.now(_IST),
+            fetched_at=datetime.utcnow(),
         )

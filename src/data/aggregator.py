@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
-from datetime import timezone as _tz_import
+
 _IST = timezone(timedelta(hours=5, minutes=30))
 from typing import List
 

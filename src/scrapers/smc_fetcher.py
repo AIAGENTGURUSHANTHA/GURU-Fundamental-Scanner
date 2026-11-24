@@ -278,7 +278,7 @@ class SMCFetcher:
             fvg=fvg,
             buy_signal=buy_signal,
             data_source="Yahoo Finance (NSE)",
-            fetched_at=datetime.now(_IST),
+            fetched_at=datetime.utcnow(),
         )
 
     def _fetch_nsepython_price(self, sym: str, ref_date: date) -> Tuple[Optional[str], Optional[float]]:
