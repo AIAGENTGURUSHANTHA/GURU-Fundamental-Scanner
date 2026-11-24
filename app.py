@@ -303,8 +303,14 @@ def _fmt_fetched_at() -> str:
     return _fmt_ts(st.session_state.get("last_fetched_at"))
 
 
-def _do_fetch(symbols: list, scan_name: str, save_to_history: bool = False) -> None:
+def _do_fetch(symbols: list, scan_name: str, save_to_history: bool = False,
+              force_refresh: bool = False) -> None:
     """Fetch symbols, update session state. Save to scan history only when requested."""
+    # Invalidate cache for each symbol so a forced refresh always hits screener.in
+    if force_refresh:
+        from src.data.cache_manager import cache_manager as _cm
+        for sym in symbols:
+            _cm.invalidate(sym.strip().upper())
     progress = st.progress(0.0, text="Starting…")
     slot = st.empty()
     results = []
@@ -1722,13 +1728,22 @@ def render_dashboard():
         if syms:
             scan_name = st.session_state.get("active_scan_name") or "Refresh"
             st.markdown(f"**Refreshing {len(syms)} symbol(s)…**")
-            # Refresh never re-saves to history
-            _do_fetch(syms, scan_name, save_to_history=False)
+            # Refresh always bypasses cache so latest PEG/EV/EBITDA data is fetched
+            _do_fetch(syms, scan_name, save_to_history=False, force_refresh=True)
 
     # Render results
     data = st.session_state.stock_data
     if not data:
         return
+
+    # Warn if loaded from saved scan (PEG/EV/EBITDA missing) — prompt a Refresh
+    if len(data) > 1:
+        missing_peg = sum(1 for s in data if s.peg_ratio is None and not s.error)
+        if missing_peg > len(data) // 2:
+            st.info(
+                "ℹ️ This scan was saved before PEG & EV/EBITDA data was available. "
+                "Click **🔄 Refresh** below to reload fresh data with these columns."
+            )
 
     if len(data) == 1:
         _render_single_card(data[0])
