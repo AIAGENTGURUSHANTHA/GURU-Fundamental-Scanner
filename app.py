@@ -1956,14 +1956,14 @@ def _render_table(stock_list: list):
             "Div Yield %":      s.dividend_yield,
             "Face Value (₹)":   s.face_value,
             # ── 8 New columns ──
-            "Promoter Pledging %":  s.promoter_pledging,
+            "Pledged %":            getattr(s, "promoter_pledging", None),
             "EPS (₹)":              s.eps,
-            "Enterprise Value (Cr)": s.enterprise_value,
+            "Enterprise Value (Cr)": getattr(s, "enterprise_value", None),
             "P/E":                  s.stock_pe,
-            "P/ROE":                s.p_roe,
-            "LTVI":                 s.ltvi,
-            "Debt/Equity":          s.debt_equity,
-            "Oper. Profit (Cr)":    s.operating_profit,
+            "P/ROE":                getattr(s, "p_roe", None),
+            "LTVI":                 getattr(s, "ltvi", None),
+            "Debt/Equity":          getattr(s, "debt_equity", None),
+            "Oper. Profit (Cr)":    getattr(s, "operating_profit", None),
         })
         if s.error:
             rows[-1]["Error"] = s.error
@@ -2046,8 +2046,8 @@ def _render_table(stock_list: list):
             "Div Yield %":          st.column_config.NumberColumn("Div Yield %", format="%.2f"),
             "Face Value (₹)":       st.column_config.NumberColumn("Face Value (₹)", format="₹%.2f"),
             # ── 8 New columns ──
-            "Promoter Pledging %":  st.column_config.NumberColumn("Promoter Pledging %", format="%.2f",
-                                        help="% of promoter shares pledged (screener.in login required — currently N/A)"),
+            "Pledged %":            st.column_config.NumberColumn("Pledged %", format="%.2f",
+                                        help="% of promoter shares pledged (data not publicly available from screener.in without login — shows N/A)"),
             "EPS (₹)":              st.column_config.NumberColumn("EPS (₹)", format="₹%.2f"),
             "Enterprise Value (Cr)": st.column_config.NumberColumn("Enterprise Value (Cr)", format="%.0f"),
             "P/E":                  st.column_config.NumberColumn("P/E", format="%.2f"),
