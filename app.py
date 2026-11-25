@@ -5293,6 +5293,79 @@ def _render_holdings_tab(asset_type: str) -> None:
         st.info("No holdings added yet. Use the form above to add your first BUY entry.")
         return
 
+    # ── Open Positions with virtual P&L and direct Sell button ───────────────
+    open_buy_rows = [h for h in holdings
+                     if h.get("transaction_type", "BUY") == "BUY"
+                     and (h.get("remaining_qty") or 0) > 0.0001
+                     and not h.get("sell_date")]
+
+    if open_buy_rows:
+        st.markdown("### 📂 Open Positions")
+        if not any(live_prices.get(h["symbol"]) for h in open_buy_rows):
+            st.caption("💡 Click **📡 Refresh Prices** above to see virtual P&L vs current market price.")
+
+        _g = "#dcfce7"; _r = "#fee2e2"; _gc = "#15803d"; _rc = "#b91c1c"
+        if dark:
+            _g = "rgba(20,83,45,0.4)"; _r = "rgba(69,10,10,0.4)"
+            _gc = "#4ade80";           _rc = "#f87171"
+
+        for h in open_buy_rows:
+            pnl_amt, pnl_pct, days, _, eff_price = _holding_pnl(h, live_prices)
+            remaining = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
+            invested  = h["buy_price"] * remaining
+
+            if pnl_amt is not None:
+                bg_col = _g if pnl_amt >= 0 else _r
+                fc_col = _gc if pnl_amt >= 0 else _rc
+                pnl_label = f"₹{pnl_amt:+,.2f} ({pnl_pct:+.2f}%)"
+            else:
+                bg_col = "rgba(100,116,139,0.1)"
+                fc_col = "#64748b"
+                pnl_label = "⏳ Refresh for P&L"
+
+            cur_price_str = f"₹{eff_price:,.2f}" if eff_price else "—"
+
+            oc1, oc2, oc3, oc4, oc5, oc6 = st.columns([2, 2, 2, 2, 2, 1])
+            with oc1:
+                st.markdown(
+                    f"<div style='font-weight:700;font-size:1rem;'>{h['symbol']}</div>"
+                    f"<div style='font-size:0.75rem;color:#64748b;'>{h['company_name'] or ''}</div>",
+                    unsafe_allow_html=True,
+                )
+            with oc2:
+                st.markdown(
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Buy Price</div>"
+                    f"<div style='font-weight:600;'>₹{h['buy_price']:,.2f}</div>",
+                    unsafe_allow_html=True,
+                )
+            with oc3:
+                st.markdown(
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Remaining × Invested</div>"
+                    f"<div style='font-weight:600;'>{remaining:,.4g} × ₹{invested:,.2f}</div>",
+                    unsafe_allow_html=True,
+                )
+            with oc4:
+                st.markdown(
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Current Price</div>"
+                    f"<div style='font-weight:600;'>{cur_price_str}</div>",
+                    unsafe_allow_html=True,
+                )
+            with oc5:
+                st.markdown(
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Virtual P&L &nbsp;({days}d)</div>"
+                    f"<div style='font-weight:700;color:{fc_col};background:{bg_col};"
+                    f"padding:2px 6px;border-radius:4px;display:inline-block;'>{pnl_label}</div>",
+                    unsafe_allow_html=True,
+                )
+            with oc6:
+                if st.button("📤 Sell", key=f"op_sell_{h['id']}_{asset_type}",
+                             use_container_width=True):
+                    st.session_state["holdings_sell_buy_id"] = h["id"]
+                    st.session_state["holdings_edit_id"]     = None
+                    st.rerun()
+
+        st.markdown("---")
+
     # ── Main table ────────────────────────────────────────────────────────────
     st.markdown("### 📋 All Transactions")
     rows = []
@@ -5312,13 +5385,13 @@ def _render_holdings_tab(asset_type: str) -> None:
             "Buy Price (₹)": h["buy_price"],
             "Qty":           h["buy_qty"],
             "Remaining":     remaining if t_type == "BUY" else None,
+            "Cur/Sell ₹":    eff_price,
+            "P&L (₹)":       pnl_amt,
+            "P&L %":         pnl_pct,
+            "Days":          days,
             "Sell Date":     h.get("sell_date") or "—",
             "Sell Price (₹)": h.get("sell_price"),
             "Sell Qty":      h.get("sell_qty"),
-            "Current/Sell ₹": eff_price,
-            "Days Held":     days,
-            "P&L (₹)":       pnl_amt,
-            "P&L %":         pnl_pct,
         })
 
     df = pd.DataFrame(rows)
@@ -5334,13 +5407,13 @@ def _render_holdings_tab(asset_type: str) -> None:
         "Buy Price (₹)":  num_col("Buy Price (₹)",    format="₹%.2f"),
         "Qty":            num_col("Qty",               format="%.4f"),
         "Remaining":      num_col("Remaining",         format="%.4f"),
+        "Cur/Sell ₹":     num_col("Cur/Sell ₹",       format="₹%.2f"),
+        "P&L (₹)":        num_col("P&L (₹)",          format="%+,.2f"),
+        "P&L %":          num_col("P&L %",             format="%+.2f%%"),
+        "Days":           num_col("Days",              format="%d d"),
         "Sell Date":      txt_col("Sell Date",         width="small"),
         "Sell Price (₹)": num_col("Sell Price (₹)",   format="₹%.2f"),
         "Sell Qty":       num_col("Sell Qty",          format="%.4f"),
-        "Current/Sell ₹": num_col("Current/Sell ₹",   format="₹%.2f"),
-        "Days Held":      num_col("Days Held",         format="%d d"),
-        "P&L (₹)":        num_col("P&L (₹)",          format="%+,.2f"),
-        "P&L %":          num_col("P&L %",             format="%+.2f%%"),
     }
 
     def _style_pnl_abs(val):
