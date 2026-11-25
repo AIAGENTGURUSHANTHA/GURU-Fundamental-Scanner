@@ -221,6 +221,11 @@ def _init():
         "rsi_etf_do_refresh": False,
         "rsi_etf_active_scan_name": None,
         "rsi_etf_ref_date": None,
+        # Base Price Screener
+        "bps_stock_data": [],
+        "bps_stock_last_fetched_at": None,
+        "bps_etf_data": [],
+        "bps_etf_last_fetched_at": None,
         # My Holdings
         "holdings_active_tab": "equity",
         "holdings_edit_id": None,
@@ -1558,6 +1563,7 @@ def render_sidebar():
         fund_type     = "primary" if active == "fundamentals"       else "secondary"
         tech_type     = "primary" if active == "technicals"          else "secondary"
         gsb_type      = "primary" if active == "guru_smart_business" else "secondary"
+        bps_type      = "primary" if active == "base_price_screener" else "secondary"
         rsi_type      = "primary" if active == "rsi_screener"        else "secondary"
         holdings_type = "primary" if active == "my_holdings"         else "secondary"
 
@@ -1570,6 +1576,9 @@ def render_sidebar():
             st.rerun()
         if st.button("🏪 GURU SMART BUSINESS", use_container_width=True, type=gsb_type, key="nav_gsb"):
             st.session_state.section = "guru_smart_business"
+            st.rerun()
+        if st.button("📐 Base Price Screener", use_container_width=True, type=bps_type, key="nav_bps"):
+            st.session_state.section = "base_price_screener"
             st.rerun()
         if st.button("📉 RSI Screener", use_container_width=True, type=rsi_type, key="nav_rsi"):
             st.session_state.section = "rsi_screener"
@@ -1824,18 +1833,6 @@ def render_sidebar():
                             st.rerun()
             else:
                 st.caption("No ETF RSI scans saved yet.")
-            st.markdown("---")
-
-        elif st.session_state.section == "my_holdings":
-            st.markdown("### 💼 My Holdings")
-            user_phone = user["phone_number"]
-            for atype, label in [("equity","Equity"),("gold_silver","Gold & Silver"),
-                                   ("etf","ETF"),("reits_invits","REITs & InvITs")]:
-                rows = db.get_holdings(user_phone, atype)
-                open_cnt  = sum(1 for r in rows if not r.get("sell_date"))
-                closed_cnt= sum(1 for r in rows if r.get("sell_date"))
-                if rows:
-                    st.caption(f"**{label}**: {open_cnt} open · {closed_cnt} closed")
             st.markdown("---")
 
         if st.button("🚪 Logout", use_container_width=True):
@@ -5166,11 +5163,15 @@ def _render_holdings_tab(asset_type: str) -> None:
         c3.metric("SELL Transactions", len(sell_rows))
         c4.metric("Total Invested",    f"₹{total_invested:,.2f}")
         if virt_cnt > 0:
-            _pnl_col = ("#4ade80" if virt_pnl >= 0 else "#f87171") if dark else ("#15803d" if virt_pnl >= 0 else "#b91c1c")
+            _pnl_col  = ("#4ade80" if virt_pnl >= 0 else "#f87171") if dark else ("#15803d" if virt_pnl >= 0 else "#b91c1c")
+            _card_bg  = "#1e2130" if dark else "#ffffff"
+            _card_br  = "rgba(255,255,255,0.1)" if dark else "rgba(49,51,63,0.1)"
             c5.markdown(
-                f'<div style="line-height:1.2;">'
-                f'<div style="font-size:0.8rem;color:#64748b;">Virtual P&amp;L (open)</div>'
-                f'<div style="font-size:1.4rem;font-weight:700;color:{_pnl_col};">₹{virt_pnl:+,.2f}</div>'
+                f'<div style="background:{_card_bg};border:1px solid {_card_br};'
+                f'border-radius:0.5rem;padding:0.6rem 0.75rem;'
+                f'box-shadow:0 1px 3px rgba(49,51,63,0.08);">'
+                f'<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.3rem;">Virtual P&amp;L (open)</div>'
+                f'<div style="font-size:1.6rem;font-weight:700;color:{_pnl_col};line-height:1.1;">₹{virt_pnl:+,.2f}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
@@ -6202,6 +6203,303 @@ def _render_rsi_sections(valid: list, prefix: str) -> None:
 
     if not any([daily_os, daily_ob, weekly_os, weekly_ob, monthly_os, monthly_ob]):
         st.info("No RSI signals found. All values are between 35 and 70.")
+
+
+# ── Base Price Screener ────────────────────────────────────────────────────────
+
+def _fetch_base_price_single(symbol: str) -> dict:
+    """Return 3yr SMA (738d), 5yr SMA (1230d), and last-close for one NSE symbol."""
+    import yfinance as _yf
+    sym = symbol.strip().upper()
+    result = {
+        "symbol": sym, "company_name": sym,
+        "current_price": None,
+        "sma_3yr": None, "diff_3yr": None, "diff_3yr_pct": None,
+        "sma_5yr": None, "diff_5yr": None, "diff_5yr_pct": None,
+        "error": None,
+    }
+    try:
+        t    = _yf.Ticker(f"{sym}.NS")
+        hist = t.history(period="7y", interval="1d", auto_adjust=True)
+        if hist.empty:
+            result["error"] = "No data from Yahoo Finance"
+            return result
+        closes = hist["Close"].dropna()
+        result["current_price"] = round(float(closes.iloc[-1]), 2)
+        # Company name
+        try:
+            fi = t.fast_info
+            for attr in ("long_name", "longName", "short_name", "shortName"):
+                val = getattr(fi, attr, None)
+                if val:
+                    result["company_name"] = str(val)
+                    break
+        except Exception:
+            pass
+        # 3-year SMA = last 738 trading days
+        if len(closes) >= 738:
+            sma3 = round(float(closes.tail(738).mean()), 2)
+            result["sma_3yr"]      = sma3
+            result["diff_3yr"]     = round(result["current_price"] - sma3, 2)
+            result["diff_3yr_pct"] = round((result["diff_3yr"] / sma3 * 100) if sma3 else 0, 2)
+        # 5-year SMA = last 1230 trading days
+        if len(closes) >= 1230:
+            sma5 = round(float(closes.tail(1230).mean()), 2)
+            result["sma_5yr"]      = sma5
+            result["diff_5yr"]     = round(result["current_price"] - sma5, 2)
+            result["diff_5yr_pct"] = round((result["diff_5yr"] / sma5 * 100) if sma5 else 0, 2)
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def _fetch_base_price_bulk(symbols: list) -> list:
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+    results_map: dict = {}
+    _empty = lambda s: {
+        "symbol": s.strip().upper(), "company_name": s, "error": "Not fetched",
+        "current_price": None, "sma_3yr": None, "diff_3yr": None, "diff_3yr_pct": None,
+        "sma_5yr": None, "diff_5yr": None, "diff_5yr_pct": None,
+    }
+    with _TPE(max_workers=6) as ex:
+        futures = {ex.submit(_fetch_base_price_single, s): s for s in symbols}
+        for fut in _ac(futures):
+            sym = futures[fut]
+            try:
+                results_map[sym.strip().upper()] = fut.result(timeout=120)
+            except Exception as e:
+                r = _empty(sym); r["error"] = str(e)
+                results_map[sym.strip().upper()] = r
+    return [results_map.get(s.strip().upper(), _empty(s)) for s in symbols]
+
+
+def _render_base_price_tab(tab_key: str) -> None:
+    dark      = st.session_state.get("dark_mode", False)
+    data_key  = f"{tab_key}_data"
+    fetch_key = f"{tab_key}_last_fetched_at"
+
+    # ── Input ─────────────────────────────────────────────────────────────────
+    tab_m, tab_f = st.tabs(["📝 Enter Symbols", "📁 Upload File"])
+    symbols: list = []
+
+    with tab_m:
+        txt = st.text_area(
+            "Symbols", height=100, label_visibility="collapsed",
+            placeholder="RELIANCE, INFY, TCS  or one per line",
+            key=f"{tab_key}_manual_input",
+        )
+        c1, c2 = st.columns([1, 5])
+        with c1:
+            scan_btn = st.button("🔍 Scan", type="primary",
+                                 use_container_width=True, key=f"{tab_key}_scan_m")
+        with c2:
+            st.caption("NSE symbols. Fetches 3-year (738d) & 5-year (1230d) SMA from Yahoo Finance.")
+        if scan_btn and txt.strip():
+            symbols = _parser.parse_text_input(txt)
+
+    with tab_f:
+        up = st.file_uploader(
+            "Upload CSV/Excel/TXT", type=["csv","xlsx","xls","txt"],
+            label_visibility="collapsed", key=f"{tab_key}_file_uploader",
+        )
+        cf1, cf2, cf3 = st.columns([1, 1, 4])
+        with cf1:
+            scan_f = st.button("🔍 Scan File", type="primary",
+                               use_container_width=True, key=f"{tab_key}_scan_f")
+        with cf2:
+            _samp = pd.DataFrame({"symbol": ["RELIANCE","INFY","TCS","HDFCBANK","WIPRO"]})
+            st.download_button("📥 Sample", _samp.to_csv(index=False).encode(),
+                               "sample.csv", "text/csv", key=f"{tab_key}_sample_dl")
+        with cf3:
+            st.caption("CSV/Excel: 'symbol' column or first column. TXT: one per line.")
+        if scan_f and up:
+            symbols = _parser.parse_file(up)
+            if not symbols:
+                st.warning("⚠️ No valid symbols found in file.")
+
+    # ── Fetch ─────────────────────────────────────────────────────────────────
+    if symbols:
+        st.markdown(
+            f"**Calculating Base Price SMA for {len(symbols)} symbol(s):** "
+            f"{', '.join(symbols[:15])}{'…' if len(symbols) > 15 else ''}"
+        )
+        with st.spinner("📡 Fetching historical data from Yahoo Finance…"):
+            data = _fetch_base_price_bulk(symbols)
+            valid_syms = [d["symbol"] for d in data if not d.get("error")]
+            if valid_syms:
+                live_px = _fetch_nse_live_prices_bulk(valid_syms)
+                for d in data:
+                    lp = live_px.get(d["symbol"])
+                    if lp and lp.get("price"):
+                        cp = float(lp["price"])
+                        d["current_price"] = cp
+                        if d["sma_3yr"]:
+                            d["diff_3yr"]     = round(cp - d["sma_3yr"], 2)
+                            d["diff_3yr_pct"] = round((d["diff_3yr"] / d["sma_3yr"] * 100), 2)
+                        if d["sma_5yr"]:
+                            d["diff_5yr"]     = round(cp - d["sma_5yr"], 2)
+                            d["diff_5yr_pct"] = round((d["diff_5yr"] / d["sma_5yr"] * 100), 2)
+        st.session_state[data_key]  = data
+        st.session_state[fetch_key] = datetime.now()
+
+    data = st.session_state.get(data_key, [])
+    if not data:
+        st.info("Enter NSE symbols above and click 🔍 Scan to calculate base prices.")
+        return
+
+    fetched_at = st.session_state.get(fetch_key)
+    if fetched_at:
+        st.caption(f"🕐 Fetched at {fetched_at.strftime('%d %b %Y %H:%M:%S')}")
+
+    # ── Counts ─────────────────────────────────────────────────────────────────
+    valid_data = [d for d in data if not d.get("error") and d.get("current_price")]
+    buy_3yr  = [d for d in valid_data if d.get("diff_3yr")  is not None and d["diff_3yr"]  < 0]
+    buy_5yr  = [d for d in valid_data if d.get("diff_5yr")  is not None and d["diff_5yr"]  < 0]
+    sell_3yr = [d for d in valid_data if d.get("diff_3yr")  is not None and d["diff_3yr"] >= 0]
+    sell_5yr = [d for d in valid_data if d.get("diff_5yr")  is not None and d["diff_5yr"] >= 0]
+
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric("🟢 3yr Buy Signals",  len(buy_3yr))
+    mc2.metric("🟢 5yr Buy Signals",  len(buy_5yr))
+    mc3.metric("🔴 3yr Don't Buy",    len(sell_3yr))
+    mc4.metric("🔴 5yr Don't Buy",    len(sell_5yr))
+
+    # ── Card renderer ──────────────────────────────────────────────────────────
+    _g_bg = "rgba(20,83,45,0.4)"  if dark else "#dcfce7"
+    _r_bg = "rgba(69,10,10,0.4)"  if dark else "#fee2e2"
+    _g_fg = "#4ade80" if dark else "#15803d"
+    _r_fg = "#f87171" if dark else "#b91c1c"
+    _card_bg  = "#1e2130" if dark else "#f8fafc"
+    _card_brd = "rgba(255,255,255,0.08)" if dark else "#e2e8f0"
+
+    def _fmt(v):
+        return f"₹{v:,.2f}" if v is not None else "—"
+
+    def _fmt_diff(v, p):
+        if v is None:
+            return "—"
+        sign = "+" if v >= 0 else ""
+        return f"{sign}₹{v:,.2f} ({sign}{p:.1f}%)"
+
+    def _render_bps_rows(rows: list) -> None:
+        if not rows:
+            st.caption("No stocks in this group.")
+            return
+        for d in rows:
+            sym  = d["symbol"]
+            name = d.get("company_name") or sym
+            if d.get("error"):
+                st.error(f"**{sym}**: {d['error'][:100]}")
+                continue
+            cp = d.get("current_price")
+            s3 = d.get("sma_3yr");  d3 = d.get("diff_3yr");  p3 = d.get("diff_3yr_pct") or 0
+            s5 = d.get("sma_5yr");  d5 = d.get("diff_5yr");  p5 = d.get("diff_5yr_pct") or 0
+
+            bg3  = _g_bg if (d3 is not None and d3 < 0) else _r_bg
+            fg3  = _g_fg if (d3 is not None and d3 < 0) else _r_fg
+            sig3 = "✅ BUY" if (d3 is not None and d3 < 0) else "❌ WAIT"
+            bg5  = _g_bg if (d5 is not None and d5 < 0) else _r_bg
+            fg5  = _g_fg if (d5 is not None and d5 < 0) else _r_fg
+            sig5 = "✅ BUY" if (d5 is not None and d5 < 0) else "❌ WAIT"
+
+            tv_url  = f"https://www.tradingview.com/chart/?symbol=NSE:{sym}"
+            nse_url = f"https://www.nseindia.com/get-quotes/equity?symbol={sym}"
+
+            st.markdown(
+                f'<div style="background:{_card_bg};border-radius:10px;padding:0.7rem 1rem;'
+                f'margin-bottom:0.5rem;border:1px solid {_card_brd};">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                f'flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">'
+                f'  <div>'
+                f'    <span style="font-weight:800;font-size:1rem;">{sym}</span>'
+                f'    <span style="font-size:0.78rem;color:#64748b;margin-left:0.6rem;">{name}</span>'
+                f'  </div>'
+                f'  <div style="display:flex;gap:0.4rem;">'
+                f'    <a href="{tv_url}" target="_blank" style="font-size:0.73rem;padding:3px 9px;'
+                f'       background:#2962ff;color:white;border-radius:4px;text-decoration:none;">📈 TradingView</a>'
+                f'    <a href="{nse_url}" target="_blank" style="font-size:0.73rem;padding:3px 9px;'
+                f'       background:#0d47a1;color:white;border-radius:4px;text-decoration:none;">🏛 NSE</a>'
+                f'  </div>'
+                f'</div>'
+                f'<div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start;">'
+                f'  <div style="min-width:110px;">'
+                f'    <div style="font-size:0.72rem;color:#64748b;">Current Price</div>'
+                f'    <div style="font-weight:700;">{_fmt(cp)}</div>'
+                f'  </div>'
+                f'  <div style="min-width:120px;">'
+                f'    <div style="font-size:0.72rem;color:#64748b;">3yr SMA (738d)</div>'
+                f'    <div style="font-weight:600;">{_fmt(s3)}</div>'
+                f'  </div>'
+                f'  <div style="min-width:170px;background:{bg3};border-radius:6px;padding:3px 8px;">'
+                f'    <div style="font-size:0.72rem;color:{fg3};">Diff vs 3yr · {sig3}</div>'
+                f'    <div style="font-weight:700;color:{fg3};">{_fmt_diff(d3, p3)}</div>'
+                f'  </div>'
+                f'  <div style="min-width:120px;">'
+                f'    <div style="font-size:0.72rem;color:#64748b;">5yr SMA (1230d)</div>'
+                f'    <div style="font-weight:600;">{_fmt(s5) if s5 else "Need 5yr history"}</div>'
+                f'  </div>'
+                f'  <div style="min-width:170px;background:{bg5};border-radius:6px;padding:3px 8px;">'
+                f'    <div style="font-size:0.72rem;color:{fg5};">Diff vs 5yr · {sig5}</div>'
+                f'    <div style="font-weight:700;color:{fg5};">'
+                f'      {_fmt_diff(d5, p5) if d5 is not None else "Need 5yr history"}'
+                f'    </div>'
+                f'  </div>'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Expandable sections ────────────────────────────────────────────────────
+    st.markdown("---")
+    with st.expander(f"🟢 3-Year Base Price — Buy Signals ({len(buy_3yr)} stocks)", expanded=True):
+        st.markdown(
+            "<p style='font-size:0.82rem;color:gray;'>"
+            "Current price is <b>BELOW</b> the 3-year (738-day) SMA — potential buy zone.</p>",
+            unsafe_allow_html=True)
+        _render_bps_rows(buy_3yr)
+
+    with st.expander(f"🟢 5-Year Base Price — Buy Signals ({len(buy_5yr)} stocks)", expanded=True):
+        st.markdown(
+            "<p style='font-size:0.82rem;color:gray;'>"
+            "Current price is <b>BELOW</b> the 5-year (1230-day) SMA — long-term buy zone.</p>",
+            unsafe_allow_html=True)
+        _render_bps_rows(buy_5yr)
+
+    with st.expander(f"🔴 3-Year Base Price — Don't Buy ({len(sell_3yr)} stocks)", expanded=False):
+        st.markdown(
+            "<p style='font-size:0.82rem;color:gray;'>"
+            "Current price is <b>ABOVE</b> the 3-year (738-day) SMA — trading above base price.</p>",
+            unsafe_allow_html=True)
+        _render_bps_rows(sell_3yr)
+
+    with st.expander(f"🔴 5-Year Base Price — Don't Buy ({len(sell_5yr)} stocks)", expanded=False):
+        st.markdown(
+            "<p style='font-size:0.82rem;color:gray;'>"
+            "Current price is <b>ABOVE</b> the 5-year (1230-day) SMA — trading above 5-year base.</p>",
+            unsafe_allow_html=True)
+        _render_bps_rows(sell_5yr)
+
+    errors = [d for d in data if d.get("error")]
+    if errors:
+        with st.expander(f"⚠️ Errors ({len(errors)})", expanded=False):
+            for d in errors:
+                st.error(f"**{d['symbol']}**: {d['error']}")
+
+
+def render_base_price_screener() -> None:
+    st.markdown("## 📐 Base Price Screener")
+    st.markdown(
+        "<p style='color:gray;font-size:0.9rem;margin-bottom:0.5rem;'>"
+        "3-Year (738d) &amp; 5-Year (1230d) Simple Moving Average · "
+        "🟢 Green = price below SMA (Buy) · 🔴 Red = price above SMA (Don't Buy) · "
+        "Live prices from NSE India</p>",
+        unsafe_allow_html=True,
+    )
+    tab_stock, tab_etf = st.tabs(["📊 Base Price Stock Screener", "🏦 Base Price ETF Screener"])
+    with tab_stock:
+        _render_base_price_tab("bps_stock")
+    with tab_etf:
+        _render_base_price_tab("bps_etf")
 
 
 # ── GURU SMART BUSINESS ───────────────────────────────────────────────────────
@@ -7493,6 +7791,8 @@ else:
         render_guru_smart_business()
     elif section == "rsi_screener":
         render_rsi_screener()
+    elif section == "base_price_screener":
+        render_base_price_screener()
     elif section == "my_holdings":
         render_my_holdings()
     elif section == "admin" and st.session_state.user and st.session_state.user.get("is_admin"):
