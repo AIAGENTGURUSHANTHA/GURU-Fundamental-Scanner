@@ -532,7 +532,54 @@ class DatabaseManager:
             session.flush()
             return True, "", sell_row.id
 
-    def delete_holding(self, holding_id: int, user_phone: str) -> bool:
+    def update_sell_transaction(self, sell_id: int, user_phone: str,
+                                 data: Dict[str, Any]) -> tuple:
+        """Edit an existing SELL row; re-adjusts parent BUY remaining_qty.
+        Returns (success: bool, error_msg: str).
+        """
+        with self.get_session() as session:
+            sell_row = (
+                session.query(Holding)
+                .filter(
+                    Holding.id == sell_id,
+                    Holding.user_phone == user_phone,
+                    Holding.transaction_type == "SELL",
+                )
+                .first()
+            )
+            if not sell_row:
+                return False, "SELL record not found."
+            old_qty  = float(sell_row.buy_qty or 0)
+            new_qty  = float(data["sell_qty"])
+            new_price = float(data["sell_price"])
+            if new_qty <= 0:
+                return False, "Sell qty must be greater than zero."
+            if new_price <= 0:
+                return False, "Sell price must be greater than zero."
+            # Adjust parent BUY remaining
+            if sell_row.parent_buy_id:
+                parent = (
+                    session.query(Holding)
+                    .filter(
+                        Holding.id == sell_row.parent_buy_id,
+                        Holding.user_phone == user_phone,
+                    )
+                    .first()
+                )
+                if parent:
+                    avail = round((parent.remaining_qty or 0) + old_qty, 8)
+                    if new_qty > avail + 1e-6:
+                        return False, f"New qty {new_qty} exceeds available {avail:.4f}."
+                    parent.remaining_qty = round(avail - new_qty, 8)
+                    parent.updated_at    = datetime.utcnow()
+            # Update the SELL row
+            sell_row.buy_qty    = new_qty
+            sell_row.sell_qty   = new_qty
+            sell_row.sell_price = new_price
+            sell_row.sell_date  = data["sell_date"]
+            sell_row.notes      = data.get("notes", sell_row.notes or "")
+            sell_row.updated_at = datetime.utcnow()
+        return True, ""
         with self.get_session() as session:
             row = (
                 session.query(Holding)
