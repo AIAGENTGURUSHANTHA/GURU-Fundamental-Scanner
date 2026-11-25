@@ -5061,14 +5061,76 @@ def _render_holdings_tab(asset_type: str) -> None:
     # ── Fetch button ──────────────────────────────────────────────────────────
     holdings = db.get_holdings(user_phone, asset_type)
 
-    # ── Summary bar ───────────────────────────────────────────────────────────
+    # ── Summary bar + Portfolio card ──────────────────────────────────────────
     if holdings:
         buy_rows  = [h for h in holdings if h.get("transaction_type", "BUY") == "BUY"]
         sell_rows = [h for h in holdings if h.get("transaction_type", "BUY") == "SELL"]
         open_buy  = [h for h in buy_rows
                      if (h.get("remaining_qty") or 0) > 0.0001 and not h.get("sell_date")]
-        total_invested = sum(h["buy_price"] * h["buy_qty"] for h in buy_rows)
 
+        # Compute portfolio numbers for the summary card
+        invested_open    = sum(
+            float(h["buy_price"]) * float(h.get("remaining_qty") or h.get("buy_qty") or 0)
+            for h in open_buy
+        )
+        cur_val_open     = sum(
+            float(live_prices[h["symbol"]]) * float(h.get("remaining_qty") or h.get("buy_qty") or 0)
+            for h in open_buy if live_prices.get(h["symbol"])
+        )
+        invested_priced  = sum(
+            float(h["buy_price"]) * float(h.get("remaining_qty") or h.get("buy_qty") or 0)
+            for h in open_buy if live_prices.get(h["symbol"])
+        )
+        virt_pnl_total   = cur_val_open - invested_priced
+        priced_cnt       = sum(1 for h in open_buy if live_prices.get(h["symbol"]))
+        has_prices       = priced_cnt > 0
+
+        # Card styling
+        tab_label = dict(_ASSET_TABS).get(asset_type, asset_type.replace("_"," ").title())
+        lbl_c = "#94a3b8" if dark else "#64748b"
+        if has_prices:
+            pos   = virt_pnl_total >= 0
+            brd_c = "#16a34a" if pos else "#dc2626"
+            bg_c  = ("rgba(20,83,45,0.35)" if pos else "rgba(69,10,10,0.35)") if dark else \
+                    ("rgba(220,252,231,0.7)" if pos else "rgba(254,226,226,0.7)")
+            txt_c = ("#4ade80" if pos else "#f87171") if dark else ("#15803d" if pos else "#b91c1c")
+            pct   = (virt_pnl_total / invested_priced * 100) if invested_priced else 0
+            pnl_str = f"₹{virt_pnl_total:+,.2f} &nbsp; ({pct:+.2f}%)"
+            price_note = f"{priced_cnt} of {len(open_buy)} positions priced"
+        else:
+            brd_c = "#64748b"; bg_c = "rgba(100,116,139,0.1)"
+            txt_c = "#64748b"; pnl_str = "—"
+            price_note = "Click 📡 Refresh Prices to see virtual P&L"
+        cur_str = f"₹{cur_val_open:,.2f}" if has_prices else "—"
+
+        st.markdown(f"""
+<div style="background:{bg_c};border:2px solid {brd_c};border-radius:12px;
+            padding:1rem 1.5rem;margin-bottom:1rem;
+            display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+  <div>
+    <div style="font-size:0.78rem;font-weight:700;color:{brd_c};text-transform:uppercase;letter-spacing:0.07em;">
+      💼 {tab_label} Portfolio
+    </div>
+    <div style="font-size:0.76rem;color:{lbl_c};margin-top:3px;">
+      {len(open_buy)} open &nbsp;·&nbsp; {len(buy_rows)} BUY rows &nbsp;·&nbsp; {len(sell_rows)} SELL txns
+    </div>
+  </div>
+  <div style="text-align:center;">
+    <div style="font-size:0.76rem;color:{lbl_c};">Invested (open)</div>
+    <div style="font-size:1.1rem;font-weight:700;">₹{invested_open:,.2f}</div>
+  </div>
+  <div style="text-align:center;">
+    <div style="font-size:0.76rem;color:{lbl_c};">Current Value</div>
+    <div style="font-size:1.1rem;font-weight:700;">{cur_str}</div>
+  </div>
+  <div style="text-align:right;">
+    <div style="font-size:0.76rem;color:{lbl_c};">Virtual P&L &nbsp;·&nbsp; {price_note}</div>
+    <div style="font-size:1.6rem;font-weight:900;color:{txt_c};">{pnl_str}</div>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+        # Metric strip
+        total_invested = sum(h["buy_price"] * h["buy_qty"] for h in buy_rows)
         virt_pnl, virt_cnt = 0.0, 0
         for h in open_buy:
             live = live_prices.get(h["symbol"])
@@ -5203,7 +5265,32 @@ def _render_holdings_tab(asset_type: str) -> None:
 
     else:
         # ── BUY add / edit form ───────────────────────────────────────────────
-        _k     = f"hf_{asset_type}_"
+        _k      = f"hf_{asset_type}_"
+        _buy_sfx = ("sym", "name", "buy_date", "buy_price", "buy_qty", "notes", "lookup", "target")
+
+        # ── Auto-save handler (runs before form render) ───────────────────────
+        if st.session_state.pop(f"{_k}pending_autosave", False) and not editing:
+            _as_sym   = st.session_state.get(f"{_k}sym",       "").strip().upper()
+            _as_price = float(st.session_state.get(f"{_k}buy_price", 0) or 0)
+            _as_qty   = float(st.session_state.get(f"{_k}buy_qty",   0) or 0)
+            if _as_sym and _as_price > 0 and _as_qty > 0:
+                db.add_holding(user_phone, asset_type, {
+                    "symbol":       _as_sym,
+                    "company_name": st.session_state.get(f"{_k}name", "").strip(),
+                    "buy_date":     str(st.session_state.get(f"{_k}buy_date", date.today())),
+                    "buy_price":    _as_price,
+                    "buy_qty":      _as_qty,
+                    "notes":        st.session_state.get(f"{_k}notes", ""),
+                })
+                for _sfx in _buy_sfx:
+                    st.session_state.pop(f"{_k}{_sfx}", None)
+                st.session_state[f"{_k}autosaved_sym"] = _as_sym
+                st.rerun()
+
+        _autosaved = st.session_state.pop(f"{_k}autosaved_sym", None)
+        if _autosaved:
+            st.success(f"✅ **{_autosaved}** auto-saved to your portfolio")
+
         target = editing["id"] if editing else "new"
 
         if st.session_state.get(f"{_k}target") != target:
@@ -5252,8 +5339,21 @@ def _render_holdings_tab(asset_type: str) -> None:
             if sym_val:
                 st.session_state[f"{_k}lookup"] = sym_val
 
+        def _trigger_autosave():
+            if editing is not None:
+                return   # auto-save only for new entries
+            sym   = st.session_state.get(f"{_k}sym",       "").strip().upper()
+            price = float(st.session_state.get(f"{_k}buy_price", 0) or 0)
+            qty   = float(st.session_state.get(f"{_k}buy_qty",   0) or 0)
+            if sym and price > 0 and qty > 0:
+                st.session_state[f"{_k}pending_autosave"] = True
+
         buy_form_title = f"✏️ Edit BUY — {editing['symbol']}" if editing else "➕ Add New BUY"
         with st.expander(buy_form_title, expanded=(editing is not None or not holdings)):
+            st.caption(
+                "💾 Your data is permanently saved to your account — it stays until you delete it. "
+                "Click **Save BUY** when ready, or simply fill in Symbol + Price + Qty and tab away to auto-save."
+            )
             fc1, fc2 = st.columns([1, 1])
             with fc1:
                 st.text_input("Symbol *", key=f"{_k}sym", placeholder="e.g. RELIANCE",
@@ -5264,13 +5364,14 @@ def _render_holdings_tab(asset_type: str) -> None:
                 st.date_input("Buy Date *", key=f"{_k}buy_date", max_value=date.today())
             with fc2:
                 st.number_input("Buy Price (₹) *", key=f"{_k}buy_price",
-                                min_value=0.0, format="%.4f")
+                                min_value=0.0, format="%.4f",
+                                on_change=_trigger_autosave)
                 st.number_input("Buy Qty *", key=f"{_k}buy_qty",
-                                min_value=0.0, format="%.4f")
+                                min_value=0.0, format="%.4f",
+                                on_change=_trigger_autosave)
                 st.text_area("Notes", key=f"{_k}notes", height=68)
 
             sc1, sc2 = st.columns([1, 1])
-            _buy_sfx = ("sym", "name", "buy_date", "buy_price", "buy_qty", "notes", "lookup", "target")
             with sc1:
                 if st.button("💾 Save BUY", type="primary", use_container_width=True,
                              key=f"{_k}save_btn"):
