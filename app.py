@@ -5525,7 +5525,7 @@ def _render_holdings_tab(asset_type: str) -> None:
 
             cur_price_str = f"₹{eff_price:,.2f}" if eff_price else "—"
 
-            oc1, oc2, oc3, oc4, oc5, oc6 = st.columns([2, 2, 2, 2, 2, 1])
+            oc1, oc2, oc3, oc4, oc5, oc6, oc7 = st.columns([2, 2, 1, 2, 2, 2, 1])
             with oc1:
                 st.markdown(
                     f"<div style='font-weight:700;font-size:1rem;'>{h['symbol']}</div>"
@@ -5540,24 +5540,30 @@ def _render_holdings_tab(asset_type: str) -> None:
                 )
             with oc3:
                 st.markdown(
-                    f"<div style='font-size:0.82rem;color:#64748b;'>Remaining × Invested</div>"
-                    f"<div style='font-weight:600;'>{remaining:,.4g} × ₹{invested:,.2f}</div>",
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Remaining</div>"
+                    f"<div style='font-weight:600;'>{remaining:,.4g}</div>",
                     unsafe_allow_html=True,
                 )
             with oc4:
+                st.markdown(
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Invested (₹)</div>"
+                    f"<div style='font-weight:600;'>₹{invested:,.2f}</div>",
+                    unsafe_allow_html=True,
+                )
+            with oc5:
                 st.markdown(
                     f"<div style='font-size:0.82rem;color:#64748b;'>Current Price</div>"
                     f"<div style='font-weight:600;'>{cur_price_str}</div>",
                     unsafe_allow_html=True,
                 )
-            with oc5:
+            with oc6:
                 st.markdown(
                     f"<div style='font-size:0.82rem;color:#64748b;'>Virtual P&L &nbsp;({days}d)</div>"
                     f"<div style='font-weight:700;color:{fc_col};background:{bg_col};"
                     f"padding:2px 6px;border-radius:4px;display:inline-block;'>{pnl_label}</div>",
                     unsafe_allow_html=True,
                 )
-            with oc6:
+            with oc7:
                 if st.button("📤 Sell", key=f"op_sell_{h['id']}_{asset_type}",
                              use_container_width=True):
                     st.session_state["holdings_sell_buy_id"] = h["id"]
