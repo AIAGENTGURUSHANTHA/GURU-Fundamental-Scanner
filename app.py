@@ -224,6 +224,7 @@ def _init():
         # My Holdings
         "holdings_active_tab": "equity",
         "holdings_edit_id": None,
+        "holdings_sell_buy_id": None,
         "holdings_live_prices": {},    # {symbol: price} refreshed on demand
     }
     for k, v in defaults.items():
@@ -4884,68 +4885,136 @@ _THRESHOLD = 3.14   # P&L% above this → Red card; below → Green card
 
 
 def _holding_pnl(h: dict, live_prices: dict) -> tuple:
-    """Return (pnl_amount, pnl_pct, holding_days, is_open, effective_price)."""
-    from datetime import date as _date
-    buy_price = h["buy_price"] or 0.0
-    buy_qty   = h["buy_qty"]   or 0.0
-    invested  = buy_price * buy_qty
+    """Return (pnl_amount, pnl_pct, holding_days, is_open, effective_price).
 
-    if h.get("sell_date") and h.get("sell_price") and h.get("sell_qty"):
-        # Closed position
-        sell_val = h["sell_price"] * h["sell_qty"]
-        pnl_amt  = round(sell_val - invested, 2)
-        pnl_pct  = round((pnl_amt / invested * 100) if invested else 0, 2)
+    For SELL rows: realized P&L = (sell_price − buy_price) × sell_qty.
+    For open BUY rows: virtual P&L = (live_price − buy_price) × remaining_qty.
+    For legacy closed BUY rows (sell_date filled on the buy row): realized P&L.
+    """
+    from datetime import date as _date
+    t_type    = h.get("transaction_type", "BUY")
+    buy_price = float(h["buy_price"] or 0)
+
+    if t_type == "SELL":
+        sell_qty   = float(h.get("sell_qty") or h.get("buy_qty") or 0)
+        sell_price = float(h.get("sell_price") or 0)
+        invested   = buy_price * sell_qty
+        pnl_amt    = round(sell_price * sell_qty - invested, 2)
+        pnl_pct    = round((pnl_amt / invested * 100) if invested else 0, 2)
         try:
-            d1  = _date.fromisoformat(h["buy_date"])
-            d2  = _date.fromisoformat(h["sell_date"])
+            d1   = _date.fromisoformat(h["buy_date"])
+            d2   = _date.fromisoformat(h["sell_date"])
             days = (d2 - d1).days
         except Exception:
             days = 0
-        return pnl_amt, pnl_pct, days, False, h["sell_price"]
-    else:
-        # Open position — use live price if available
-        sym  = h["symbol"]
-        live = live_prices.get(sym)
+        return pnl_amt, pnl_pct, days, False, sell_price
+
+    # BUY row — legacy closed (sell_date filled directly on the buy row)
+    if h.get("sell_date") and h.get("sell_price") and h.get("sell_qty"):
+        s_qty    = float(h["sell_qty"])
+        invested = buy_price * s_qty
+        sell_val = float(h["sell_price"]) * s_qty
+        pnl_amt  = round(sell_val - invested, 2)
+        pnl_pct  = round((pnl_amt / invested * 100) if invested else 0, 2)
         try:
-            d1  = _date.fromisoformat(h["buy_date"])
-            days = (_date.today() - d1).days
+            d1   = _date.fromisoformat(h["buy_date"])
+            d2   = _date.fromisoformat(h["sell_date"])
+            days = (d2 - d1).days
         except Exception:
             days = 0
-        if live:
-            cur_val  = live * buy_qty
-            pnl_amt  = round(cur_val - invested, 2)
-            pnl_pct  = round((pnl_amt / invested * 100) if invested else 0, 2)
-            return pnl_amt, pnl_pct, days, True, live
-        return None, None, days, True, None
+        return pnl_amt, pnl_pct, days, False, float(h["sell_price"])
+
+    # Open BUY row — virtual P&L
+    remaining = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
+    sym       = h["symbol"]
+    live      = live_prices.get(sym)
+    invested  = buy_price * remaining
+    try:
+        d1   = _date.fromisoformat(h["buy_date"])
+        days = (_date.today() - d1).days
+    except Exception:
+        days = 0
+    if live and remaining > 0:
+        pnl_amt = round(live * remaining - invested, 2)
+        pnl_pct = round((pnl_amt / invested * 100) if invested else 0, 2)
+        return pnl_amt, pnl_pct, days, True, live
+    return None, None, days, True, None
 
 
 def _holding_card_html(h: dict, pnl_amt, pnl_pct, days: int,
                         is_open: bool, eff_price, dark: bool) -> str:
-    above = (pnl_pct is not None and pnl_pct > _THRESHOLD)
-    brd  = "#dc2626" if above else "#16a34a"
-    bg   = ("rgba(69,10,10,0.35)"   if dark else "rgba(254,226,226,0.6)") if above else \
-           ("rgba(20,83,45,0.35)"   if dark else "rgba(220,252,231,0.6)")
-    txt  = "#f87171" if (above and dark) else ("#b91c1c" if above else
-           ("#4ade80" if dark else "#15803d"))
-    lbl  = "#94a3b8" if dark else "#64748b"
-    signal = "🔴 Book Profit" if above else "🟢 Averaging Zone"
-    pnl_str = (f"{pnl_amt:+,.2f} ({pnl_pct:+.2f}%)") if pnl_amt is not None else "Live price needed"
+    t_type  = h.get("transaction_type", "BUY")
+    is_sell = (t_type == "SELL")
+
+    positive = (pnl_amt is not None and pnl_amt >= 0)
+    above    = (pnl_pct is not None and pnl_pct > _THRESHOLD and not is_sell)
+
+    if is_sell:
+        brd = "#16a34a" if positive else "#dc2626"
+        bg  = ("rgba(20,83,45,0.35)"  if dark else "rgba(220,252,231,0.6)") if positive else \
+              ("rgba(69,10,10,0.35)"  if dark else "rgba(254,226,226,0.6)")
+        txt = ("#4ade80" if dark else "#15803d") if positive else ("#f87171" if dark else "#b91c1c")
+    elif above:
+        brd = "#dc2626"
+        bg  = "rgba(69,10,10,0.35)"  if dark else "rgba(254,226,226,0.6)"
+        txt = "#f87171"              if dark else "#b91c1c"
+    elif pnl_amt is not None and pnl_amt < 0:
+        brd = "#dc2626"
+        bg  = "rgba(69,10,10,0.35)"  if dark else "rgba(254,226,226,0.6)"
+        txt = "#f87171"              if dark else "#b91c1c"
+    else:
+        brd = "#16a34a"
+        bg  = "rgba(20,83,45,0.35)"  if dark else "rgba(220,252,231,0.6)"
+        txt = "#4ade80"              if dark else "#15803d"
+
+    lbl = "#94a3b8" if dark else "#64748b"
+
+    if is_sell:
+        signal = "✅ Realized Profit" if positive else "❌ Realized Loss"
+    else:
+        signal = "🔴 Book Profit" if above else ("🟢 Averaging Zone" if pnl_amt is not None else "⏳ Awaiting Price")
+
+    if pnl_amt is not None:
+        pnl_str = f"{pnl_amt:+,.2f} ({pnl_pct:+.2f}%)"
+    else:
+        pnl_str = "Live price needed"
+
     price_str = f"₹{eff_price:,.2f}" if eff_price else "—"
-    status = "Open" if is_open else "Closed"
-    sym    = h["symbol"]
-    name   = h["company_name"] or sym
-    invested = h["buy_price"] * h["buy_qty"]
+    sym  = h["symbol"]
+    name = h["company_name"] or sym
+
+    if is_sell:
+        sell_qty   = float(h.get("sell_qty") or h.get("buy_qty") or 0)
+        detail_line = (
+            f"Sold: ₹{h['sell_price']:,.2f} × {sell_qty:,.0f}"
+            f" &nbsp;·&nbsp; Bought @ ₹{h['buy_price']:,.2f}"
+            f" &nbsp;·&nbsp; {h['sell_date']} &nbsp;·&nbsp; {days}d"
+        )
+        badge = "SELL"
+    else:
+        remaining = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
+        invested  = h["buy_price"] * h["buy_qty"]
+        detail_line = (
+            f"Bought: ₹{h['buy_price']:,.2f} × {h['buy_qty']:,.0f} = ₹{invested:,.2f}"
+            f" &nbsp;·&nbsp; {h['buy_date']} &nbsp;·&nbsp; {days}d"
+            f" &nbsp;·&nbsp; Remaining: {remaining:,.4g}"
+        )
+        badge = "BUY"
+
+    status = "Realized" if is_sell else ("Open" if is_open else "Closed")
+
     return f"""
 <div style="background:{bg};border:1.5px solid {brd};border-radius:10px;
             padding:0.85rem 1.1rem;margin-bottom:0.6rem;">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;">
     <div>
-      <div style="font-size:1.3rem;font-weight:800;color:{brd};">{sym}</div>
-      <div style="font-size:0.82rem;color:{lbl};">{name}</div>
-      <div style="font-size:0.78rem;color:{lbl};margin-top:2px;">
-        Buy: ₹{h['buy_price']:,.2f} × {h['buy_qty']:,.0f} = ₹{invested:,.2f}
-        &nbsp;·&nbsp; {h['buy_date']} &nbsp;·&nbsp; {days}d
+      <div style="display:flex;align-items:center;gap:0.4rem;">
+        <span style="font-size:1.3rem;font-weight:800;color:{brd};">{sym}</span>
+        <span style="font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:4px;
+                     background:{brd}22;color:{brd};border:1px solid {brd};">{badge}</span>
       </div>
+      <div style="font-size:0.82rem;color:{lbl};">{name}</div>
+      <div style="font-size:0.78rem;color:{lbl};margin-top:2px;">{detail_line}</div>
     </div>
     <div style="text-align:right;">
       <div style="font-size:1.1rem;font-weight:800;color:{txt};">₹{pnl_str}</div>
@@ -4994,22 +5063,32 @@ def _render_holdings_tab(asset_type: str) -> None:
 
     # ── Summary bar ───────────────────────────────────────────────────────────
     if holdings:
-        total_invested = sum(h["buy_price"] * h["buy_qty"] for h in holdings)
-        total_realised = sum(
-            h["sell_price"] * h["sell_qty"]
-            for h in holdings
-            if h.get("sell_price") and h.get("sell_qty")
-        )
-        open_cnt   = sum(1 for h in holdings if not h.get("sell_date"))
-        closed_cnt = sum(1 for h in holdings if h.get("sell_date"))
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Entries",    len(holdings))
-        c2.metric("Open Positions",   open_cnt)
-        c3.metric("Closed Positions", closed_cnt)
-        c4.metric("Total Invested (₹)", f"₹{total_invested:,.2f}")
+        buy_rows  = [h for h in holdings if h.get("transaction_type", "BUY") == "BUY"]
+        sell_rows = [h for h in holdings if h.get("transaction_type", "BUY") == "SELL"]
+        open_buy  = [h for h in buy_rows
+                     if (h.get("remaining_qty") or 0) > 0.0001 and not h.get("sell_date")]
+        total_invested = sum(h["buy_price"] * h["buy_qty"] for h in buy_rows)
 
-        # Live price refresh for open positions
-        open_syms = list({h["symbol"] for h in holdings if not h.get("sell_date")})
+        virt_pnl, virt_cnt = 0.0, 0
+        for h in open_buy:
+            live = live_prices.get(h["symbol"])
+            if live:
+                rem = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
+                virt_pnl += (live - float(h["buy_price"])) * rem
+                virt_cnt += 1
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("BUY Rows",          len(buy_rows))
+        c2.metric("Open Positions",    len(open_buy))
+        c3.metric("SELL Transactions", len(sell_rows))
+        c4.metric("Total Invested",    f"₹{total_invested:,.2f}")
+        if virt_cnt > 0:
+            c5.metric("Virtual P&L (open)", f"₹{virt_pnl:+,.2f}")
+        else:
+            c5.metric("Virtual P&L (open)", "—")
+
+        # Live price refresh
+        open_syms = list({h["symbol"] for h in open_buy})
         if open_syms:
             lc1, lc2 = st.columns([1, 5])
             with lc1:
@@ -5026,40 +5105,34 @@ def _render_holdings_tab(asset_type: str) -> None:
                     slot.empty()
                     st.rerun()
             with lc2:
-                if live_prices:
-                    fetched_syms = [s for s in open_syms if s in live_prices]
-                    st.caption(f"Live prices loaded for: {', '.join(fetched_syms)}" if fetched_syms
-                               else "Click Refresh Prices to load live NSE prices for open positions.")
+                fetched = [s for s in open_syms if s in live_prices]
+                if fetched:
+                    st.caption(f"Live prices loaded for: {', '.join(fetched)}")
                 else:
                     st.caption("Click Refresh Prices to load live NSE prices for open positions.")
         st.markdown("---")
 
-    # ── Add / Edit form ───────────────────────────────────────────────────────
+    # ── Add / Edit BUY form ───────────────────────────────────────────────────
+    sell_buy_id = st.session_state.get("holdings_sell_buy_id")
+
     editing = None
     if edit_id is not None:
         editing = next((h for h in holdings if h["id"] == edit_id), None)
 
-    _k      = f"hf_{asset_type}_"   # form state key prefix
-    target  = editing["id"] if editing else "new"
+    _k     = f"hf_{asset_type}_"
+    target = editing["id"] if editing else "new"
 
-    # Initialize / re-initialize form state when target changes or after reset
     if st.session_state.get(f"{_k}target") != target:
         from datetime import date as _di
-        st.session_state[f"{_k}sym"]        = editing["symbol"]                       if editing else ""
-        st.session_state[f"{_k}name"]       = (editing.get("company_name") or "")     if editing else ""
-        st.session_state[f"{_k}buy_date"]   = _di.fromisoformat(editing["buy_date"])  if editing else _di.today()
-        st.session_state[f"{_k}buy_price"]  = float(editing["buy_price"])             if editing else 0.0
-        st.session_state[f"{_k}buy_qty"]    = float(editing["buy_qty"])               if editing else 0.0
-        _hs = bool(editing and editing.get("sell_date"))
-        st.session_state[f"{_k}has_sell"]   = _hs
-        st.session_state[f"{_k}sell_date"]  = (_di.fromisoformat(editing["sell_date"]) if _hs else _di.today())
-        st.session_state[f"{_k}sell_price"] = float(editing["sell_price"] or 0)       if editing else 0.0
-        st.session_state[f"{_k}sell_qty"]   = float(editing["sell_qty"]   or 0)       if editing else 0.0
-        st.session_state[f"{_k}notes"]      = (editing.get("notes") or "")            if editing else ""
-        st.session_state[f"{_k}target"]     = target
-        st.session_state[f"{_k}lookup"]     = ""   # no pending lookup
+        st.session_state[f"{_k}sym"]       = editing["symbol"]                      if editing else ""
+        st.session_state[f"{_k}name"]      = (editing.get("company_name") or "")    if editing else ""
+        st.session_state[f"{_k}buy_date"]  = _di.fromisoformat(editing["buy_date"]) if editing else _di.today()
+        st.session_state[f"{_k}buy_price"] = float(editing["buy_price"])            if editing else 0.0
+        st.session_state[f"{_k}buy_qty"]   = float(editing["buy_qty"])              if editing else 0.0
+        st.session_state[f"{_k}notes"]     = (editing.get("notes") or "")           if editing else ""
+        st.session_state[f"{_k}target"]    = target
+        st.session_state[f"{_k}lookup"]    = ""
 
-    # Auto-fetch company name when symbol changes (triggered by on_change)
     pending_sym = st.session_state.get(f"{_k}lookup", "")
     if pending_sym:
         st.session_state[f"{_k}lookup"] = ""
@@ -5095,41 +5168,27 @@ def _render_holdings_tab(asset_type: str) -> None:
         if sym_val:
             st.session_state[f"{_k}lookup"] = sym_val
 
-    form_title = f"✏️ Edit — {editing['symbol']}" if editing else "➕ Add New Holding"
-    with st.expander(form_title, expanded=(editing is not None or not holdings)):
+    buy_form_title = f"✏️ Edit — {editing['symbol']}" if editing else "➕ Add New BUY"
+    with st.expander(buy_form_title, expanded=(editing is not None or not holdings)):
         fc1, fc2 = st.columns([1, 1])
         with fc1:
-            st.text_input(
-                "Symbol *",
-                key=f"{_k}sym",
-                placeholder="e.g. RELIANCE",
-                on_change=_on_sym_change,
-                help="Tab out after entering the symbol — company name is fetched automatically",
-            )
-            st.text_input(
-                "Company Name",
-                key=f"{_k}name",
-                placeholder="Auto-filled when symbol is entered · editable",
-            )
+            st.text_input("Symbol *", key=f"{_k}sym", placeholder="e.g. RELIANCE",
+                          on_change=_on_sym_change,
+                          help="Tab out — company name is fetched automatically")
+            st.text_input("Company Name", key=f"{_k}name",
+                          placeholder="Auto-filled when symbol is entered · editable")
             st.date_input("Buy Date *", key=f"{_k}buy_date", max_value=date.today())
+        with fc2:
             st.number_input("Buy Price (₹) *", key=f"{_k}buy_price",
                             min_value=0.0, format="%.4f")
             st.number_input("Buy Qty *", key=f"{_k}buy_qty",
                             min_value=0.0, format="%.4f")
-        with fc2:
-            st.markdown("**Sell Details** *(leave blank if still holding)*")
-            st.checkbox("Mark as Sold", key=f"{_k}has_sell")
-            if st.session_state.get(f"{_k}has_sell"):
-                st.date_input("Sell Date", key=f"{_k}sell_date", max_value=date.today())
-                st.number_input("Sell Price (₹)", key=f"{_k}sell_price",
-                                min_value=0.0, format="%.4f")
-                st.number_input("Sell Qty", key=f"{_k}sell_qty",
-                                min_value=0.0, format="%.4f")
             st.text_area("Notes", key=f"{_k}notes", height=68)
 
         sc1, sc2 = st.columns([1, 1])
+        _buy_sfx = ("sym", "name", "buy_date", "buy_price", "buy_qty", "notes", "lookup", "target")
         with sc1:
-            if st.button("💾 Save", type="primary", use_container_width=True,
+            if st.button("💾 Save BUY", type="primary", use_container_width=True,
                          key=f"{_k}save_btn"):
                 sym_val   = st.session_state.get(f"{_k}sym", "").strip().upper()
                 buy_price = float(st.session_state.get(f"{_k}buy_price", 0))
@@ -5139,18 +5198,12 @@ def _render_holdings_tab(asset_type: str) -> None:
                 elif buy_price <= 0 or buy_qty <= 0:
                     st.error("Buy Price and Buy Qty must be greater than zero.")
                 else:
-                    has_sell   = st.session_state.get(f"{_k}has_sell", False)
-                    sell_price = float(st.session_state.get(f"{_k}sell_price", 0))
-                    sell_qty   = float(st.session_state.get(f"{_k}sell_qty",   0))
                     payload = {
                         "symbol":       sym_val,
                         "company_name": st.session_state.get(f"{_k}name", "").strip(),
                         "buy_date":     str(st.session_state.get(f"{_k}buy_date", date.today())),
                         "buy_price":    buy_price,
                         "buy_qty":      buy_qty,
-                        "sell_date":    str(st.session_state.get(f"{_k}sell_date", date.today())) if has_sell else None,
-                        "sell_price":   sell_price if (has_sell and sell_price > 0) else None,
-                        "sell_qty":     sell_qty   if (has_sell and sell_qty   > 0) else None,
                         "notes":        st.session_state.get(f"{_k}notes", ""),
                     }
                     if editing:
@@ -5159,81 +5212,153 @@ def _render_holdings_tab(asset_type: str) -> None:
                     else:
                         db.add_holding(user_phone, asset_type, payload)
                         st.success(f"✅ Added {sym_val}")
-                    # Reset form for next entry
-                    for _sfx in ("sym","name","buy_date","buy_price","buy_qty",
-                                 "has_sell","sell_date","sell_price","sell_qty",
-                                 "notes","lookup","target"):
+                    for _sfx in _buy_sfx:
                         st.session_state.pop(f"{_k}{_sfx}", None)
                     st.session_state["holdings_edit_id"] = None
                     st.rerun()
         with sc2:
             if st.button("✖ Cancel", use_container_width=True, key=f"{_k}cancel_btn"):
-                for _sfx in ("sym","name","buy_date","buy_price","buy_qty",
-                             "has_sell","sell_date","sell_price","sell_qty",
-                             "notes","lookup","target"):
+                for _sfx in _buy_sfx:
                     st.session_state.pop(f"{_k}{_sfx}", None)
                 st.session_state["holdings_edit_id"] = None
                 st.rerun()
 
+    # ── Sell Transaction form ─────────────────────────────────────────────────
+    if sell_buy_id is not None:
+        sell_src = next((h for h in holdings if h["id"] == sell_buy_id), None)
+        if sell_src:
+            _sk   = f"hfs_{asset_type}_"
+            s_rem = float(sell_src.get("remaining_qty") or sell_src.get("buy_qty") or 0)
+
+            st.markdown(f"### 📤 Record Sell — **{sell_src['symbol']}**")
+            st.caption(
+                f"Original buy: ₹{sell_src['buy_price']:,.2f} × {sell_src['buy_qty']:,.0f} · "
+                f"Remaining available to sell: **{s_rem:,.4g}**"
+            )
+            sf1, sf2 = st.columns([1, 1])
+            with sf1:
+                s_qty = st.number_input(
+                    f"Sell Qty (max {s_rem:,.4g}) *",
+                    key=f"{_sk}sell_qty", min_value=0.0, max_value=float(s_rem),
+                    format="%.4f",
+                )
+                s_price = st.number_input(
+                    "Sell Price (₹) *", key=f"{_sk}sell_price",
+                    min_value=0.0, format="%.4f",
+                )
+            with sf2:
+                s_date  = st.date_input("Sell Date *", key=f"{_sk}sell_date",
+                                        max_value=date.today())
+                s_notes = st.text_area("Notes", key=f"{_sk}notes", height=68)
+
+            ss1, ss2 = st.columns([1, 1])
+            with ss1:
+                if st.button("💾 Confirm Sell", type="primary",
+                             use_container_width=True, key=f"{_sk}confirm"):
+                    sell_qty_v = float(st.session_state.get(f"{_sk}sell_qty", 0))
+                    sell_px_v  = float(st.session_state.get(f"{_sk}sell_price", 0))
+                    if sell_qty_v <= 0:
+                        st.error("Sell qty must be greater than zero.")
+                    elif sell_px_v <= 0:
+                        st.error("Sell price must be greater than zero.")
+                    else:
+                        ok, msg, _ = db.add_sell_transaction(
+                            user_phone, sell_buy_id,
+                            {
+                                "sell_qty":   sell_qty_v,
+                                "sell_price": sell_px_v,
+                                "sell_date":  str(st.session_state.get(f"{_sk}sell_date", date.today())),
+                                "notes":      st.session_state.get(f"{_sk}notes", ""),
+                            }
+                        )
+                        if ok:
+                            st.success(f"✅ Sell of {sell_qty_v:,.4g} {sell_src['symbol']} recorded.")
+                            for _sfx in ("sell_qty","sell_price","sell_date","notes"):
+                                st.session_state.pop(f"{_sk}{_sfx}", None)
+                            st.session_state["holdings_sell_buy_id"] = None
+                            st.rerun()
+                        else:
+                            st.error(f"Error: {msg}")
+            with ss2:
+                if st.button("✖ Cancel Sell", use_container_width=True, key=f"{_sk}cancel"):
+                    for _sfx in ("sell_qty","sell_price","sell_date","notes"):
+                        st.session_state.pop(f"{_sk}{_sfx}", None)
+                    st.session_state["holdings_sell_buy_id"] = None
+                    st.rerun()
+
+            st.markdown("---")
+
     # ── No data yet ───────────────────────────────────────────────────────────
     if not holdings:
-        st.info("No holdings added yet. Use the form above to add your first entry.")
+        st.info("No holdings added yet. Use the form above to add your first BUY entry.")
         return
 
     # ── Main table ────────────────────────────────────────────────────────────
-    st.markdown("### 📋 All Holdings")
+    st.markdown("### 📋 All Transactions")
     rows = []
     for h in holdings:
         pnl_amt, pnl_pct, days, is_open, eff_price = _holding_pnl(h, live_prices)
+        t_type    = h.get("transaction_type", "BUY")
+        remaining = h.get("remaining_qty")
+        if t_type == "BUY" and remaining is None:
+            remaining = h.get("buy_qty")
+
         rows.append({
             "ID":            h["id"],
+            "Txn":           t_type,
             "Symbol":        h["symbol"],
             "Company":       h["company_name"] or h["symbol"],
             "Buy Date":      h["buy_date"],
             "Buy Price (₹)": h["buy_price"],
-            "Buy Qty":       h["buy_qty"],
-            "Invested (₹)":  round(h["buy_price"] * h["buy_qty"], 2),
-            "Sell Date":     h["sell_date"] or "—",
-            "Sell Price (₹)":h["sell_price"] if h.get("sell_price") else None,
-            "Sell Qty":      h["sell_qty"]   if h.get("sell_qty")   else None,
+            "Qty":           h["buy_qty"],
+            "Remaining":     remaining if t_type == "BUY" else None,
+            "Sell Date":     h.get("sell_date") or "—",
+            "Sell Price (₹)": h.get("sell_price"),
+            "Sell Qty":      h.get("sell_qty"),
+            "Current/Sell ₹": eff_price,
             "Days Held":     days,
             "P&L (₹)":       pnl_amt,
             "P&L %":         pnl_pct,
-            "Status":        "Open" if is_open else "Closed",
         })
+
     df = pd.DataFrame(rows)
     df_disp = df.drop(columns=["ID"])
 
     num_col = st.column_config.NumberColumn
     txt_col = st.column_config.TextColumn
     col_cfg = {
-        "Symbol":        txt_col("Symbol",        width="small"),
-        "Company":       txt_col("Company",        width="medium"),
-        "Buy Date":      txt_col("Buy Date",       width="small"),
-        "Buy Price (₹)": num_col("Buy Price (₹)",  format="₹%.2f"),
-        "Buy Qty":       num_col("Buy Qty",         format="%.4f"),
-        "Invested (₹)":  num_col("Invested (₹)",   format="₹%.2f"),
-        "Sell Date":     txt_col("Sell Date",       width="small"),
-        "Sell Price (₹)":num_col("Sell Price (₹)", format="₹%.2f"),
-        "Sell Qty":      num_col("Sell Qty",        format="%.4f"),
-        "Days Held":     num_col("Days Held",       format="%d d"),
-        "P&L (₹)":       num_col("P&L (₹)",        format="%+,.2f"),
-        "P&L %":         num_col("P&L %",           format="%+.2f%%"),
-        "Status":        txt_col("Status",          width="small"),
+        "Txn":            txt_col("Txn",             width="small"),
+        "Symbol":         txt_col("Symbol",           width="small"),
+        "Company":        txt_col("Company",           width="medium"),
+        "Buy Date":       txt_col("Buy Date",          width="small"),
+        "Buy Price (₹)":  num_col("Buy Price (₹)",    format="₹%.2f"),
+        "Qty":            num_col("Qty",               format="%.4f"),
+        "Remaining":      num_col("Remaining",         format="%.4f"),
+        "Sell Date":      txt_col("Sell Date",         width="small"),
+        "Sell Price (₹)": num_col("Sell Price (₹)",   format="₹%.2f"),
+        "Sell Qty":       num_col("Sell Qty",          format="%.4f"),
+        "Current/Sell ₹": num_col("Current/Sell ₹",   format="₹%.2f"),
+        "Days Held":      num_col("Days Held",         format="%d d"),
+        "P&L (₹)":        num_col("P&L (₹)",          format="%+,.2f"),
+        "P&L %":          num_col("P&L %",             format="%+.2f%%"),
     }
 
-    def _style_pnl(val):
+    def _style_pnl_abs(val):
         try:
             v = float(val)
         except (TypeError, ValueError):
             return ""
-        if v > _THRESHOLD:
-            return "background-color:#450a0a;color:#f87171" if dark else "background-color:#fee2e2;color:#b91c1c"
+        if v > 0:
+            return "background-color:#14532d;color:#4ade80" if dark else "background-color:#dcfce7;color:#15803d"
         if v < 0:
             return "background-color:#450a0a;color:#f87171" if dark else "background-color:#fee2e2;color:#b91c1c"
-        return "background-color:#14532d;color:#4ade80" if dark else "background-color:#dcfce7;color:#15803d"
+        return ""
 
-    styled = df_disp.style.map(_style_pnl, subset=["P&L %"]) if "P&L %" in df_disp.columns else df_disp.style
+    styled = df_disp.style
+    if "P&L (₹)" in df_disp.columns:
+        styled = styled.map(_style_pnl_abs, subset=["P&L (₹)"])
+    if "P&L %" in df_disp.columns:
+        styled = styled.map(_style_pnl_abs, subset=["P&L %"])
 
     evt = st.dataframe(
         styled, hide_index=True, use_container_width=True,
@@ -5242,22 +5367,40 @@ def _render_holdings_tab(asset_type: str) -> None:
         key=f"holdings_df_{asset_type}",
     )
 
-    # Row-action buttons (Edit / Delete) based on selected row
+    # Row-action buttons
     selected = evt.selection.rows if hasattr(evt, "selection") else []
     if selected:
-        sel_id = int(df.iloc[selected[0]]["ID"])
-        sel_sym = df.iloc[selected[0]]["Symbol"]
-        ac1, ac2, ac3 = st.columns([1, 1, 4])
+        sel_row   = df.iloc[selected[0]]
+        sel_id    = int(sel_row["ID"])
+        sel_sym   = sel_row["Symbol"]
+        sel_type  = sel_row["Txn"]
+        sel_rem   = float(sel_row["Remaining"]) if sel_row["Remaining"] is not None and str(sel_row["Remaining"]) not in ("nan", "None", "") else 0.0
+
+        btns = [1, 1, 1, 3] if (sel_type == "BUY" and sel_rem > 0.0001) else [1, 1, 4]
+        if sel_type == "BUY" and sel_rem > 0.0001:
+            ac1, ac2, ac3, _ = st.columns(btns)
+        else:
+            ac1, ac2, _ = st.columns(btns)
+
         with ac1:
-            if st.button(f"✏️ Edit {sel_sym}", key=f"h_edit_{asset_type}", use_container_width=True):
-                st.session_state["holdings_edit_id"] = sel_id
+            if st.button(f"✏️ Edit", key=f"h_edit_{asset_type}", use_container_width=True):
+                st.session_state["holdings_edit_id"]   = sel_id
+                st.session_state["holdings_sell_buy_id"] = None
                 st.rerun()
         with ac2:
-            if st.button(f"🗑 Delete {sel_sym}", key=f"h_del_{asset_type}",
+            if st.button(f"🗑 Delete", key=f"h_del_{asset_type}",
                          use_container_width=True, type="secondary"):
                 db.delete_holding(sel_id, user_phone)
-                st.session_state["holdings_edit_id"] = None
+                st.session_state["holdings_edit_id"]   = None
+                st.session_state["holdings_sell_buy_id"] = None
                 st.rerun()
+        if sel_type == "BUY" and sel_rem > 0.0001:
+            with ac3:
+                if st.button(f"📤 Sell {sel_sym}", key=f"h_sell_{asset_type}",
+                             use_container_width=True):
+                    st.session_state["holdings_sell_buy_id"] = sel_id
+                    st.session_state["holdings_edit_id"]     = None
+                    st.rerun()
 
     # CSV / Excel export
     ec1, ec2 = st.columns([1, 1])
@@ -5286,48 +5429,72 @@ def _render_holdings_tab(asset_type: str) -> None:
         pnl_amt, pnl_pct, days, is_open, eff_price = _holding_pnl(h, live_prices)
         computed.append((h, pnl_amt, pnl_pct, days, is_open, eff_price))
 
-    above_thresh = [(h, pa, pp, d, io, ep)
-                    for h, pa, pp, d, io, ep in computed
-                    if pp is not None and pp > _THRESHOLD]
-    below_thresh = [(h, pa, pp, d, io, ep)
-                    for h, pa, pp, d, io, ep in computed
-                    if pp is not None and pp <= _THRESHOLD]
-    no_price     = [(h, pa, pp, d, io, ep)
-                    for h, pa, pp, d, io, ep in computed
-                    if pp is None and io]
+    # Open BUY positions with virtual P&L
+    open_above = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in computed
+                  if h.get("transaction_type","BUY") == "BUY" and io
+                  and pp is not None and pp > _THRESHOLD]
+    open_below = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in computed
+                  if h.get("transaction_type","BUY") == "BUY" and io
+                  and pp is not None and pp <= _THRESHOLD]
+    sell_pnl   = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in computed
+                  if h.get("transaction_type","BUY") == "SELL" and pp is not None]
+    no_price   = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in computed
+                  if h.get("transaction_type","BUY") == "BUY" and io and pp is None]
 
-    above_thresh.sort(key=lambda x: x[2], reverse=True)
-    below_thresh.sort(key=lambda x: x[2])
+    open_above.sort(key=lambda x: x[2], reverse=True)
+    open_below.sort(key=lambda x: x[2])
+    sell_pnl.sort(key=lambda x: x[2], reverse=True)
 
     st.markdown("### 📊 Signal Sections")
 
-    if above_thresh:
-        with st.expander(f"🔴 P&L > {_THRESHOLD}% — Book Profit Candidates ({len(above_thresh)})",
+    if open_above:
+        with st.expander(f"🔴 Virtual P&L > {_THRESHOLD}% — Book Profit Candidates ({len(open_above)})",
                          expanded=True):
-            cols = st.columns(min(3, len(above_thresh)))
-            for i, (h, pa, pp, d, io, ep) in enumerate(above_thresh):
+            cols = st.columns(min(3, len(open_above)))
+            for i, (h, pa, pp, d, io, ep) in enumerate(open_above):
                 with cols[i % 3]:
                     st.markdown(_holding_card_html(h, pa, pp, d, io, ep, dark),
                                 unsafe_allow_html=True)
 
-    if below_thresh:
-        with st.expander(f"🟢 P&L ≤ {_THRESHOLD}% — Averaging Zone ({len(below_thresh)})",
+    if open_below:
+        with st.expander(f"🟢 Virtual P&L ≤ {_THRESHOLD}% — Averaging Zone ({len(open_below)})",
                          expanded=False):
-            cols = st.columns(min(3, len(below_thresh)))
-            for i, (h, pa, pp, d, io, ep) in enumerate(below_thresh):
+            cols = st.columns(min(3, len(open_below)))
+            for i, (h, pa, pp, d, io, ep) in enumerate(open_below):
                 with cols[i % 3]:
                     st.markdown(_holding_card_html(h, pa, pp, d, io, ep, dark),
                                 unsafe_allow_html=True)
+
+    if sell_pnl:
+        profit_sells = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in sell_pnl if pa >= 0]
+        loss_sells   = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in sell_pnl if pa < 0]
+        if profit_sells:
+            with st.expander(f"✅ Realized Profit — SELL Transactions ({len(profit_sells)})",
+                             expanded=False):
+                cols = st.columns(min(3, len(profit_sells)))
+                for i, (h, pa, pp, d, io, ep) in enumerate(profit_sells):
+                    with cols[i % 3]:
+                        st.markdown(_holding_card_html(h, pa, pp, d, io, ep, dark),
+                                    unsafe_allow_html=True)
+        if loss_sells:
+            with st.expander(f"❌ Realized Loss — SELL Transactions ({len(loss_sells)})",
+                             expanded=False):
+                cols = st.columns(min(3, len(loss_sells)))
+                for i, (h, pa, pp, d, io, ep) in enumerate(loss_sells):
+                    with cols[i % 3]:
+                        st.markdown(_holding_card_html(h, pa, pp, d, io, ep, dark),
+                                    unsafe_allow_html=True)
 
     if no_price:
         with st.expander(f"⏳ Live Price Needed — Open Positions ({len(no_price)})",
                          expanded=False):
             st.caption("Click **Refresh Prices** above to load live NSE prices for these positions.")
             for h, *_ in no_price:
-                invested = h["buy_price"] * h["buy_qty"]
+                remaining = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
+                invested  = h["buy_price"] * remaining
                 st.markdown(
                     f"**{h['symbol']}** — {h['company_name'] or h['symbol']} · "
-                    f"Buy ₹{h['buy_price']:,.2f} × {h['buy_qty']:,.0f} = ₹{invested:,.2f} · "
+                    f"Buy ₹{h['buy_price']:,.2f} × {remaining:,.4g} = ₹{invested:,.2f} · "
                     f"Since {h['buy_date']}"
                 )
 

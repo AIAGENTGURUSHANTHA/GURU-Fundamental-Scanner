@@ -70,20 +70,24 @@ class ScanSession(Base):
 class Holding(Base):
     __tablename__ = "holdings"
 
-    id          = Column(Integer, primary_key=True, autoincrement=True)
-    user_phone  = Column(String(20), nullable=False, index=True)
-    asset_type  = Column(String(30), nullable=False, index=True)
-    symbol      = Column(String(50), nullable=False)
-    company_name= Column(String(200), default="", nullable=False)
-    buy_date    = Column(String(10), nullable=False)   # YYYY-MM-DD
-    buy_price   = Column(Float, nullable=False)
-    buy_qty     = Column(Float, nullable=False)
-    sell_date   = Column(String(10), nullable=True)
-    sell_price  = Column(Float, nullable=True)
-    sell_qty    = Column(Float, nullable=True)
-    notes       = Column(Text, default="", nullable=False)
-    created_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    user_phone       = Column(String(20), nullable=False, index=True)
+    asset_type       = Column(String(30), nullable=False, index=True)
+    symbol           = Column(String(50), nullable=False)
+    company_name     = Column(String(200), default="", nullable=False)
+    buy_date         = Column(String(10), nullable=False)   # YYYY-MM-DD
+    buy_price        = Column(Float, nullable=False)
+    buy_qty          = Column(Float, nullable=False)
+    sell_date        = Column(String(10), nullable=True)
+    sell_price       = Column(Float, nullable=True)
+    sell_qty         = Column(Float, nullable=True)
+    notes            = Column(Text, default="", nullable=False)
+    created_at       = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at       = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Transaction tracking (added in v2)
+    transaction_type = Column(String(10), default="BUY", nullable=False)
+    remaining_qty    = Column(Float, nullable=True)   # BUY rows: how much is still open
+    parent_buy_id    = Column(Integer, nullable=True)  # SELL rows: ID of the originating BUY
 
 
 class DatabaseManager:
@@ -121,6 +125,32 @@ class DatabaseManager:
                     conn.commit()
             except Exception:
                 pass  # Column already exists
+            # Migrate holdings v2 columns
+            for _ddl in (
+                "ALTER TABLE holdings ADD COLUMN transaction_type TEXT NOT NULL DEFAULT 'BUY'",
+                "ALTER TABLE holdings ADD COLUMN remaining_qty REAL",
+                "ALTER TABLE holdings ADD COLUMN parent_buy_id INTEGER",
+            ):
+                try:
+                    with self.engine.connect() as conn:
+                        conn.execute(text(_ddl))
+                        conn.commit()
+                except Exception:
+                    pass  # Column already exists
+            # Back-fill remaining_qty for existing rows
+            try:
+                with self.engine.connect() as conn:
+                    conn.execute(text(
+                        "UPDATE holdings SET remaining_qty = buy_qty "
+                        "WHERE remaining_qty IS NULL AND (sell_date IS NULL OR sell_date = '')"
+                    ))
+                    conn.execute(text(
+                        "UPDATE holdings SET remaining_qty = 0 "
+                        "WHERE remaining_qty IS NULL AND sell_date IS NOT NULL AND sell_date != ''"
+                    ))
+                    conn.commit()
+            except Exception:
+                pass
             self.SessionLocal = sessionmaker(
                 bind=self.engine, autocommit=False, autoflush=False
             )
@@ -416,17 +446,20 @@ class DatabaseManager:
     def add_holding(self, user_phone: str, asset_type: str, data: Dict[str, Any]) -> int:
         with self.get_session() as session:
             row = Holding(
-                user_phone   = user_phone,
-                asset_type   = asset_type,
-                symbol       = data["symbol"].strip().upper(),
-                company_name = data.get("company_name", ""),
-                buy_date     = data["buy_date"],
-                buy_price    = float(data["buy_price"]),
-                buy_qty      = float(data["buy_qty"]),
-                sell_date    = data.get("sell_date") or None,
-                sell_price   = float(data["sell_price"]) if data.get("sell_price") else None,
-                sell_qty     = float(data["sell_qty"])   if data.get("sell_qty")   else None,
-                notes        = data.get("notes", ""),
+                user_phone       = user_phone,
+                asset_type       = asset_type,
+                symbol           = data["symbol"].strip().upper(),
+                company_name     = data.get("company_name", ""),
+                buy_date         = data["buy_date"],
+                buy_price        = float(data["buy_price"]),
+                buy_qty          = float(data["buy_qty"]),
+                sell_date        = data.get("sell_date") or None,
+                sell_price       = float(data["sell_price"]) if data.get("sell_price") else None,
+                sell_qty         = float(data["sell_qty"])   if data.get("sell_qty")   else None,
+                notes            = data.get("notes", ""),
+                transaction_type = "BUY",
+                remaining_qty    = float(data["buy_qty"]),
+                parent_buy_id    = None,
             )
             session.add(row)
             session.flush()
@@ -454,6 +487,51 @@ class DatabaseManager:
             row.updated_at   = datetime.utcnow()
         return True
 
+    def add_sell_transaction(self, user_phone: str, buy_id: int,
+                              sell_data: Dict[str, Any]) -> tuple:
+        """Record a partial or full sell against a BUY row.
+        Returns (success: bool, error_msg: str, new_id: int|None).
+        """
+        with self.get_session() as session:
+            buy_row = (
+                session.query(Holding)
+                .filter(
+                    Holding.id == buy_id,
+                    Holding.user_phone == user_phone,
+                    Holding.transaction_type == "BUY",
+                )
+                .first()
+            )
+            if not buy_row:
+                return False, "Buy record not found.", None
+            remaining = buy_row.remaining_qty if buy_row.remaining_qty is not None else buy_row.buy_qty
+            sell_qty  = float(sell_data["sell_qty"])
+            if sell_qty <= 0:
+                return False, "Sell qty must be greater than zero.", None
+            if sell_qty > remaining + 1e-6:
+                return False, f"Sell qty {sell_qty} exceeds remaining {remaining:.4f}.", None
+            sell_row = Holding(
+                user_phone       = user_phone,
+                asset_type       = buy_row.asset_type,
+                symbol           = buy_row.symbol,
+                company_name     = buy_row.company_name,
+                buy_date         = buy_row.buy_date,
+                buy_price        = buy_row.buy_price,
+                buy_qty          = sell_qty,
+                sell_date        = sell_data["sell_date"],
+                sell_price       = float(sell_data["sell_price"]),
+                sell_qty         = sell_qty,
+                notes            = sell_data.get("notes", ""),
+                transaction_type = "SELL",
+                remaining_qty    = None,
+                parent_buy_id    = buy_id,
+            )
+            session.add(sell_row)
+            buy_row.remaining_qty = round(remaining - sell_qty, 8)
+            buy_row.updated_at    = datetime.utcnow()
+            session.flush()
+            return True, "", sell_row.id
+
     def delete_holding(self, holding_id: int, user_phone: str) -> bool:
         with self.get_session() as session:
             row = (
@@ -479,16 +557,19 @@ class DatabaseManager:
                     "user_phone":   r.user_phone,
                     "asset_type":   r.asset_type,
                     "symbol":       r.symbol,
-                    "company_name": r.company_name,
-                    "buy_date":     r.buy_date,
-                    "buy_price":    r.buy_price,
-                    "buy_qty":      r.buy_qty,
-                    "sell_date":    r.sell_date,
-                    "sell_price":   r.sell_price,
-                    "sell_qty":     r.sell_qty,
-                    "notes":        r.notes,
-                    "created_at":   str(r.created_at)[:16],
-                    "updated_at":   str(r.updated_at)[:16],
+                    "company_name":     r.company_name,
+                    "buy_date":         r.buy_date,
+                    "buy_price":        r.buy_price,
+                    "buy_qty":          r.buy_qty,
+                    "sell_date":        r.sell_date,
+                    "sell_price":       r.sell_price,
+                    "sell_qty":         r.sell_qty,
+                    "notes":            r.notes,
+                    "created_at":       str(r.created_at)[:16],
+                    "updated_at":       str(r.updated_at)[:16],
+                    "transaction_type": r.transaction_type or "BUY",
+                    "remaining_qty":    r.remaining_qty,
+                    "parent_buy_id":    r.parent_buy_id,
                 }
                 for r in rows
             ]
