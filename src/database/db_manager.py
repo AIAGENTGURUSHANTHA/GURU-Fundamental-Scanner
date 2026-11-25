@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     Integer,
     String,
     Text,
@@ -66,6 +67,25 @@ class ScanSession(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class Holding(Base):
+    __tablename__ = "holdings"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    user_phone  = Column(String(20), nullable=False, index=True)
+    asset_type  = Column(String(30), nullable=False, index=True)
+    symbol      = Column(String(50), nullable=False)
+    company_name= Column(String(200), default="", nullable=False)
+    buy_date    = Column(String(10), nullable=False)   # YYYY-MM-DD
+    buy_price   = Column(Float, nullable=False)
+    buy_qty     = Column(Float, nullable=False)
+    sell_date   = Column(String(10), nullable=True)
+    sell_price  = Column(Float, nullable=True)
+    sell_qty    = Column(Float, nullable=True)
+    notes       = Column(Text, default="", nullable=False)
+    created_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at  = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class DatabaseManager:
     _instance: Optional["DatabaseManager"] = None
     _lock = threading.Lock()
@@ -105,9 +125,6 @@ class DatabaseManager:
                 bind=self.engine, autocommit=False, autoflush=False
             )
             self._initialized = True
-
-    @contextmanager
-    def get_session(self):
         session: Session = self.SessionLocal()
         try:
             yield session
@@ -390,6 +407,88 @@ class DatabaseManager:
                 session.delete(row)
                 return True
         return False
+
+    # ── Holdings operations ──────────────────────────────────────────────────
+
+    def add_holding(self, user_phone: str, asset_type: str, data: Dict[str, Any]) -> int:
+        with self.get_session() as session:
+            row = Holding(
+                user_phone   = user_phone,
+                asset_type   = asset_type,
+                symbol       = data["symbol"].strip().upper(),
+                company_name = data.get("company_name", ""),
+                buy_date     = data["buy_date"],
+                buy_price    = float(data["buy_price"]),
+                buy_qty      = float(data["buy_qty"]),
+                sell_date    = data.get("sell_date") or None,
+                sell_price   = float(data["sell_price"]) if data.get("sell_price") else None,
+                sell_qty     = float(data["sell_qty"])   if data.get("sell_qty")   else None,
+                notes        = data.get("notes", ""),
+            )
+            session.add(row)
+            session.flush()
+            return row.id
+
+    def update_holding(self, holding_id: int, user_phone: str,
+                       data: Dict[str, Any]) -> bool:
+        with self.get_session() as session:
+            row = (
+                session.query(Holding)
+                .filter(Holding.id == holding_id, Holding.user_phone == user_phone)
+                .first()
+            )
+            if not row:
+                return False
+            row.symbol       = data["symbol"].strip().upper()
+            row.company_name = data.get("company_name", row.company_name)
+            row.buy_date     = data["buy_date"]
+            row.buy_price    = float(data["buy_price"])
+            row.buy_qty      = float(data["buy_qty"])
+            row.sell_date    = data.get("sell_date") or None
+            row.sell_price   = float(data["sell_price"]) if data.get("sell_price") else None
+            row.sell_qty     = float(data["sell_qty"])   if data.get("sell_qty")   else None
+            row.notes        = data.get("notes", row.notes)
+            row.updated_at   = datetime.utcnow()
+        return True
+
+    def delete_holding(self, holding_id: int, user_phone: str) -> bool:
+        with self.get_session() as session:
+            row = (
+                session.query(Holding)
+                .filter(Holding.id == holding_id, Holding.user_phone == user_phone)
+                .first()
+            )
+            if row:
+                session.delete(row)
+                return True
+        return False
+
+    def get_holdings(self, user_phone: str,
+                     asset_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self.get_session() as session:
+            q = session.query(Holding).filter(Holding.user_phone == user_phone)
+            if asset_type:
+                q = q.filter(Holding.asset_type == asset_type)
+            rows = q.order_by(Holding.buy_date.desc(), Holding.created_at.desc()).all()
+            return [
+                {
+                    "id":           r.id,
+                    "user_phone":   r.user_phone,
+                    "asset_type":   r.asset_type,
+                    "symbol":       r.symbol,
+                    "company_name": r.company_name,
+                    "buy_date":     r.buy_date,
+                    "buy_price":    r.buy_price,
+                    "buy_qty":      r.buy_qty,
+                    "sell_date":    r.sell_date,
+                    "sell_price":   r.sell_price,
+                    "sell_qty":     r.sell_qty,
+                    "notes":        r.notes,
+                    "created_at":   str(r.created_at)[:16],
+                    "updated_at":   str(r.updated_at)[:16],
+                }
+                for r in rows
+            ]
 
 
 # Singleton instance
