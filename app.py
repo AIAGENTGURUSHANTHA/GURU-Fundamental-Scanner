@@ -207,6 +207,20 @@ def _init():
         "eff_do_refresh": False,
         "eff_active_scan_name": None,
         "eff_ref_date": None,
+        # RSI Screener — Stocks
+        "rsi_stock_data": [],
+        "rsi_stock_last_fetched_at": None,
+        "rsi_stock_last_scan_symbols": [],
+        "rsi_stock_do_refresh": False,
+        "rsi_stock_active_scan_name": None,
+        "rsi_stock_ref_date": None,
+        # RSI Screener — ETFs
+        "rsi_etf_data": [],
+        "rsi_etf_last_fetched_at": None,
+        "rsi_etf_last_scan_symbols": [],
+        "rsi_etf_do_refresh": False,
+        "rsi_etf_active_scan_name": None,
+        "rsi_etf_ref_date": None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -1539,6 +1553,7 @@ def render_sidebar():
         fund_type = "primary" if active == "fundamentals" else "secondary"
         tech_type = "primary" if active == "technicals" else "secondary"
         gsb_type  = "primary" if active == "guru_smart_business" else "secondary"
+        rsi_type  = "primary" if active == "rsi_screener" else "secondary"
 
         if st.button("📊 Fundamentals", use_container_width=True, type=fund_type, key="nav_fund"):
             st.session_state.section = "fundamentals"
@@ -1549,6 +1564,9 @@ def render_sidebar():
             st.rerun()
         if st.button("🏪 GURU SMART BUSINESS", use_container_width=True, type=gsb_type, key="nav_gsb"):
             st.session_state.section = "guru_smart_business"
+            st.rerun()
+        if st.button("📉 RSI Screener", use_container_width=True, type=rsi_type, key="nav_rsi"):
+            st.session_state.section = "rsi_screener"
             st.rerun()
 
         if user.get("is_admin"):
@@ -1752,6 +1770,51 @@ def render_sidebar():
                             st.rerun()
             else:
                 st.caption("No Eshwarana Fruit Forest scans saved yet.")
+            st.markdown("---")
+
+        elif st.session_state.section == "rsi_screener":
+            user_phone = user["phone_number"]
+            st.markdown("### 📉 My Stock RSI Scans")
+            rsi_s_sessions = db.get_scan_sessions(user_phone, limit=15, scan_type="rsi_stock")
+            if rsi_s_sessions:
+                for s in rsi_s_sessions:
+                    icon  = "📁" if "." in s["scan_name"] else "📝"
+                    label = f"{icon} {s['scan_name'][:22]} ({s['symbol_count']})"
+                    ts    = s["created_at"][5:16]
+                    c_load, c_del = st.columns([5, 1])
+                    with c_load:
+                        if st.button(label, key=f"rsi_s_load_{s['id']}",
+                                     help=f"{s['scan_name']} — {ts}",
+                                     use_container_width=True):
+                            _load_rsi_session(s, "rsi_stock")
+                            st.rerun()
+                    with c_del:
+                        if st.button("🗑", key=f"rsi_s_del_{s['id']}", help="Delete"):
+                            db.delete_scan_session(s["id"], user_phone)
+                            st.rerun()
+            else:
+                st.caption("No Stock RSI scans saved yet.")
+
+            st.markdown("### 📉 My ETF RSI Scans")
+            rsi_e_sessions = db.get_scan_sessions(user_phone, limit=15, scan_type="rsi_etf")
+            if rsi_e_sessions:
+                for s in rsi_e_sessions:
+                    icon  = "📁" if "." in s["scan_name"] else "📝"
+                    label = f"{icon} {s['scan_name'][:22]} ({s['symbol_count']})"
+                    ts    = s["created_at"][5:16]
+                    c_load, c_del = st.columns([5, 1])
+                    with c_load:
+                        if st.button(label, key=f"rsi_e_load_{s['id']}",
+                                     help=f"{s['scan_name']} — {ts}",
+                                     use_container_width=True):
+                            _load_rsi_session(s, "rsi_etf")
+                            st.rerun()
+                    with c_del:
+                        if st.button("🗑", key=f"rsi_e_del_{s['id']}", help="Delete"):
+                            db.delete_scan_session(s["id"], user_phone)
+                            st.rerun()
+            else:
+                st.caption("No ETF RSI scans saved yet.")
             st.markdown("---")
 
         if st.button("🚪 Logout", use_container_width=True):
@@ -4789,10 +4852,428 @@ def _render_smc_table(smc_list: list):
             st.info("No stocks currently in the Premium zone.")
 
 
+# ── RSI Screener ─────────────────────────────────────────────────────────────
+
+def _load_rsi_session(s: dict, prefix: str) -> None:
+    from src.data.rsi_models import RSIData as _RSID
+    rows    = json.loads(s["scan_data"]) if isinstance(s["scan_data"], str) else s["scan_data"]
+    results = []
+    for r in rows:
+        try:
+            results.append(_RSID(**r))
+        except Exception:
+            results.append(_RSID(symbol=r.get("symbol", "?"), error="Load error"))
+    st.session_state[f"{prefix}_data"]              = results
+    st.session_state[f"{prefix}_active_scan_name"]  = s["scan_name"]
+    st.session_state[f"{prefix}_last_fetched_at"]   = None
+    st.session_state[f"{prefix}_last_scan_symbols"] = [r.symbol for r in results]
+
+
+def _do_rsi_fetch(prefix: str, symbols: list, scan_name: str,
+                  ref_date=None, save_to_history: bool = False) -> None:
+    """Fetch RSI data then enrich current price from NSE GetQuoteApi."""
+    from src.scrapers.rsi_fetcher import RSIFetcher
+    from src.data.rsi_models import RSIData as _RSID
+
+    fetcher   = RSIFetcher()
+    slot      = st.empty()
+    done_cnt  = [0]
+
+    if len(symbols) == 1:
+        slot.markdown(_spinner_html(f"⏳ Calculating RSI for <b>{symbols[0]}</b>…"), unsafe_allow_html=True)
+        results = [fetcher.fetch(symbols[0], ref_date)]
+        slot.empty()
+    else:
+        results_map: dict = {}
+        slot.markdown(_spinner_html(f"⏳ Calculating RSI for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
+            for future in as_completed(futures):
+                sym = futures[future]
+                try:
+                    results_map[sym] = future.result(timeout=120)
+                except Exception as exc:
+                    results_map[sym] = _RSID(symbol=sym, error=str(exc))
+                done_cnt[0] += 1
+                slot.markdown(
+                    _spinner_html(f"⏳ Calculating RSI for {len(symbols)} symbols…  {done_cnt[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
+                )
+        slot.empty()
+        results = [results_map.get(s, _RSID(symbol=s, error="Not fetched")) for s in symbols]
+
+    # NSE live price enrichment (same two-scenario logic as Daily Dukaan)
+    nse_slot    = st.empty()
+    market_open = _is_market_open()
+    today_str   = str(date.today())
+    is_today    = (ref_date is not None and str(ref_date) == today_str)
+    is_weekday  = date.today().weekday() < 5
+    today_sess  = is_today and is_weekday
+
+    nse_slot.markdown(
+        _spinner_html(
+            "📡 Fetching live NSE prices…" if market_open
+            else "📡 Fetching today's closing prices from NSE…" if today_sess
+            else "📡 Fetching last-close prices from NSE…"
+        ),
+        unsafe_allow_html=True,
+    )
+    try:
+        nse_px   = _fetch_nse_live_prices_bulk(symbols)
+        enriched = []
+        for r in results:
+            lp = nse_px.get(r.symbol)
+            if lp and not r.error:
+                cp     = round(lp["price"], 2)
+                source = "NSE Live" if market_open else "NSE Close"
+                nse_date = r.ref_date
+                if lp.get("time"):
+                    for fmt in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y"):
+                        try:
+                            parsed    = datetime.strptime(lp["time"][:len(fmt)], fmt)
+                            candidate = parsed.strftime("%Y-%m-%d")
+                            if today_sess or (candidate > (nse_date or "")):
+                                nse_date = candidate
+                            break
+                        except Exception:
+                            pass
+                enriched.append(r.model_copy(update={
+                    "current_price": cp,
+                    "ref_date":      nse_date,
+                    "price_source":  source,
+                    "nse_live_time": lp["time"],
+                }))
+            else:
+                enriched.append(r)
+        results = enriched
+        nse_slot.empty()
+    except Exception as exc:
+        nse_slot.empty()
+        st.warning(f"⚠️ Could not fetch NSE prices: {exc}")
+
+    st.session_state[f"{prefix}_data"]              = results
+    st.session_state[f"{prefix}_last_fetched_at"]   = _now_ist()
+    st.session_state[f"{prefix}_last_scan_symbols"] = symbols
+    st.session_state[f"{prefix}_active_scan_name"]  = scan_name
+
+    if save_to_history:
+        user_phone = st.session_state.user["phone_number"]
+        scan_type  = "rsi_stock" if prefix == "rsi_stock" else "rsi_etf"
+        dicts = [r.model_dump() for r in results]
+        db.save_scan_session(user_phone, scan_name, dicts, scan_type=scan_type)
+
+
+def render_rsi_screener():
+    st.markdown("## 📉 RSI Screener")
+    tab_stock, tab_etf = st.tabs(["📊 Stock RSI Screener", "🏦 ETF RSI Screener"])
+    with tab_stock:
+        _render_rsi_tab("rsi_stock", label="Stock", sample_syms=["RELIANCE", "INFY", "TCS", "HDFCBANK", "WIPRO"])
+    with tab_etf:
+        _render_rsi_tab("rsi_etf",   label="ETF",   sample_syms=["NIFTYBEES", "BANKBEES", "GOLDBEES", "JUNIORBEES", "ITBEES"])
+
+
+def _render_rsi_tab(prefix: str, label: str, sample_syms: list) -> None:
+    from datetime import date as _date
+    scan_type_key = "rsi_stock" if prefix == "rsi_stock" else "rsi_etf"
+    _auto_restore_scan(f"{prefix}_data", lambda s: _load_rsi_session(s, prefix), scan_type_key)
+
+    st.markdown(
+        f"<p style='color:gray;font-size:0.9rem;margin-bottom:0.5rem;'>"
+        f"14-period RSI across Daily / Weekly / Monthly timeframes for NSE {label}s · "
+        f"RSI &lt; 35 = Oversold (green) · RSI &gt; 70 = Overbought (red)</p>",
+        unsafe_allow_html=True,
+    )
+
+    today = _date.today()
+    if st.session_state.pop(f"_live_pending_{prefix}", False):
+        st.session_state[f"{prefix}_date_picker"] = today
+    dcol1, dcol2 = st.columns([2, 5])
+    with dcol1:
+        saved_date   = st.session_state.get(f"{prefix}_ref_date") or today
+        ref_date_val = st.date_input(
+            "Reference Date",
+            value=saved_date,
+            max_value=today,
+            help="RSI is calculated as of this date. Weekends / market holidays fall back to the previous trading day.",
+            key=f"{prefix}_date_picker",
+        )
+        st.session_state[f"{prefix}_ref_date"] = ref_date_val
+    with dcol2:
+        st.markdown(
+            "<p style='color:gray;font-size:0.85rem;margin-top:1.9rem;'>"
+            "If the selected date falls on a weekend or NSE holiday, the previous available trading day is used automatically.</p>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+    tab_manual, tab_file = st.tabs(["📝 Enter Symbols", "📁 Upload File"])
+    symbols: list = []
+
+    with tab_manual:
+        txt = st.text_area(
+            f"{label} symbols",
+            placeholder=f"Single: {sample_syms[0]}\nMultiple: {', '.join(sample_syms[:3])}\nOne per line also works",
+            height=100,
+            label_visibility="collapsed",
+            key=f"{prefix}_manual_input",
+        )
+        c1, c2 = st.columns([1, 5])
+        with c1:
+            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key=f"{prefix}_scan_m")
+        with c2:
+            st.caption("Use NSE symbols. RSI data via Yahoo Finance · Live price via NSE India.")
+        if scan_btn and txt.strip():
+            st.session_state[f"_{prefix}_pending_scan_name"] = f"RSI {label} — {_now_ist().strftime('%d %b %H:%M')}"
+            symbols = _parser.parse_text_input(txt)
+
+    with tab_file:
+        up = st.file_uploader(
+            "Upload CSV / Excel / TXT", type=["csv", "xlsx", "xls", "txt"],
+            label_visibility="collapsed", key=f"{prefix}_file_uploader",
+        )
+        c1, c2, c3 = st.columns([1, 1, 4])
+        with c1:
+            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key=f"{prefix}_scan_f")
+        with c2:
+            sample = pd.DataFrame({"symbol": sample_syms})
+            st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
+                               f"sample_rsi_{label.lower()}.csv", "text/csv",
+                               key=f"{prefix}_sample_dl")
+        with c3:
+            st.caption("CSV/Excel: 'symbol' column or first column. TXT: one per line.")
+        if scan_f and up:
+            st.session_state[f"_{prefix}_pending_scan_name"] = up.name
+            symbols = _parser.parse_file(up)
+            if not symbols:
+                st.warning("⚠️ No valid symbols found in file.")
+
+    if symbols:
+        scan_name = st.session_state.pop(f"_{prefix}_pending_scan_name", f"RSI {label}")
+        st.markdown(
+            f"**Calculating RSI for {len(symbols)} symbol(s):** "
+            f"{', '.join(symbols[:15])}{'…' if len(symbols) > 15 else ''}"
+        )
+        _do_rsi_fetch(prefix, symbols, scan_name, ref_date=ref_date_val, save_to_history=True)
+
+    if st.session_state.get(f"{prefix}_do_refresh"):
+        st.session_state[f"{prefix}_do_refresh"] = False
+        syms = st.session_state.get(f"{prefix}_last_scan_symbols", [])
+        if not syms:
+            syms = [d.symbol for d in st.session_state.get(f"{prefix}_data", [])]
+        if syms:
+            scan_name = st.session_state.get(f"{prefix}_active_scan_name") or f"RSI {label} Refresh"
+            st.markdown(f"**Refreshing RSI for {len(syms)} symbol(s)…**")
+            _do_rsi_fetch(prefix, syms, scan_name, ref_date=ref_date_val, save_to_history=True)
+
+    data = st.session_state.get(f"{prefix}_data", [])
+    if not data:
+        return
+
+    valid      = [d for d in data if not d.error]
+    errors     = [d for d in data if d.error]
+    fetched_at = st.session_state.get(f"{prefix}_last_fetched_at")
+    all_dates  = [d.ref_date for d in valid if d.ref_date]
+    latest_ref = max(all_dates) if all_dates else "—"
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Symbols Scanned", len(data))
+    c2.metric("Trading Day",     latest_ref)
+    c3.metric("Loaded OK",       len(valid))
+    if fetched_at:
+        c4.metric("Last Fetched", _fmt_ts(fetched_at))
+
+    rb1, rb2, rb3 = st.columns([1, 1, 4])
+    with rb1:
+        if st.button("🔄 Refresh", use_container_width=True, key=f"{prefix}_refresh_btn"):
+            st.session_state[f"{prefix}_do_refresh"] = True
+            st.rerun()
+    with rb2:
+        _live_btn(prefix, f"{prefix}_do_refresh", f"{prefix}_live_btn")
+    with rb3:
+        if _is_market_open():
+            st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
+        else:
+            from datetime import timezone as _tz, timedelta as _td
+            _IST = _tz(_td(hours=5, minutes=30))
+            ist_now = datetime.now(_IST).strftime("%d %b %Y, %I:%M %p IST")
+            st.info(f"⏸ Market closed ({ist_now}). Live / Refresh fetches the latest NSE close price.")
+
+    st.markdown("---")
+    _render_rsi_table(data, prefix)
+    st.markdown("---")
+    _render_rsi_sections(valid, prefix)
+
+    if errors:
+        with st.expander(f"⚠️ Errors ({len(errors)} symbol(s))", expanded=False):
+            for d in errors:
+                st.markdown(f"**{d.symbol}** — {d.error}")
+
+
+def _render_rsi_table(data: list, prefix: str) -> None:
+    """Full RSI table with color-coded RSI cells using pandas Styler."""
+    dark = st.session_state.get("dark_mode", False)
+    rows = []
+    for d in data:
+        row = {
+            "Symbol":       d.symbol,
+            "Company Name": d.company_name or d.symbol,
+            "Price (₹)":    d.current_price,
+            "Daily RSI":    d.daily_rsi,
+            "Weekly RSI":   d.weekly_rsi,
+            "Monthly RSI":  d.monthly_rsi,
+            "Date":         d.ref_date or "—",
+        }
+        if d.error:
+            row["Error"] = d.error
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    h1, h2, h3 = st.columns([3, 1, 1])
+    with h1:
+        st.markdown(f"### 📊 RSI Results — {len(df)} symbol(s)")
+    with h2:
+        st.download_button(
+            "📥 CSV", df.to_csv(index=False).encode(),
+            f"rsi_{prefix}_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+            key=f"{prefix}_csv_dl",
+        )
+    with h3:
+        try:
+            import io
+            buf = io.BytesIO()
+            df.to_excel(buf, index=False, engine="openpyxl")
+            st.download_button("📥 Excel", buf.getvalue(),
+                               f"rsi_{prefix}_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
+                               key=f"{prefix}_xls_dl")
+        except Exception:
+            pass
+
+    df = _df_filter_sort(df, prefix)
+
+    def _style_rsi_cell(val):
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return ""
+        if v < 35:
+            return ("background-color:#14532d;color:#4ade80" if dark
+                    else "background-color:#dcfce7;color:#15803d")
+        if v > 70:
+            return ("background-color:#450a0a;color:#f87171" if dark
+                    else "background-color:#fee2e2;color:#b91c1c")
+        return ""
+
+    rsi_cols = [c for c in ("Daily RSI", "Weekly RSI", "Monthly RSI") if c in df.columns]
+    styled = df.style.map(_style_rsi_cell, subset=rsi_cols)
+
+    num_col = st.column_config.NumberColumn
+    txt_col = st.column_config.TextColumn
+    col_cfg: dict = {
+        "Symbol":       txt_col("Symbol",       width="small"),
+        "Company Name": txt_col("Company Name", width="large"),
+        "Price (₹)":    num_col("Price (₹)",    format="₹%.2f"),
+        "Daily RSI":    num_col("Daily RSI",    format="%.2f"),
+        "Weekly RSI":   num_col("Weekly RSI",   format="%.2f"),
+        "Monthly RSI":  num_col("Monthly RSI",  format="%.2f"),
+        "Date":         txt_col("Date",          width="small"),
+    }
+    if "Error" in df.columns:
+        col_cfg["Error"] = txt_col("Error", width="large")
+
+    st.dataframe(
+        styled, hide_index=True, use_container_width=True,
+        column_config=col_cfg,
+        key=f"{prefix}_df",
+    )
+
+
+def _render_rsi_sections(valid: list, prefix: str) -> None:
+    """Six collapsible sections: Oversold/Overbought × Daily/Weekly/Monthly."""
+    dark = st.session_state.get("dark_mode", False)
+
+    def _card_html(d, rsi_val: float, timeframe: str, oversold: bool) -> str:
+        brd = "#16a34a" if oversold else "#dc2626"
+        bg  = ("rgba(20,83,45,0.35)" if dark else "rgba(220,252,231,0.6)") if oversold else \
+              ("rgba(69,10,10,0.35)" if dark else "rgba(254,226,226,0.6)")
+        txt = "#4ade80" if (oversold and dark) else ("#15803d" if oversold else
+              ("#f87171" if dark else "#b91c1c"))
+        lbl = "#94a3b8" if dark else "#64748b"
+        label = "🟢 Oversold" if oversold else "🔴 Overbought"
+        price_str = f"₹{d.current_price:,.2f}" if d.current_price else "—"
+        return f"""
+<div style="background:{bg};border:1.5px solid {brd};border-radius:10px;
+            padding:0.85rem 1.1rem;margin-bottom:0.6rem;">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+    <div>
+      <div style="font-size:1.3rem;font-weight:800;color:{brd};">{d.symbol}</div>
+      <div style="font-size:0.85rem;color:{lbl};">{d.company_name or d.symbol}</div>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:1.5rem;font-weight:800;color:{txt};">{timeframe} RSI {rsi_val:.2f}</div>
+      <div style="font-size:0.82rem;color:{lbl};">
+        {label} &nbsp;·&nbsp; Price {price_str} &nbsp;·&nbsp; {d.ref_date or "—"}
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:0.5rem;margin-top:0.7rem;padding-top:0.6rem;border-top:1px solid {brd}40;">
+    <a href="https://www.tradingview.com/chart/?symbol=NSE:{d.symbol}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;font-weight:600;
+              color:{brd};background:rgba(255,255,255,0.4);border:1px solid {brd};
+              border-radius:6px;padding:0.25rem 0.7rem;text-decoration:none;">
+      📈 TradingView
+    </a>
+    <a href="https://www.nseindia.com/get-quotes/equity?symbol={d.symbol}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;font-weight:600;
+              color:{brd};background:rgba(255,255,255,0.4);border:1px solid {brd};
+              border-radius:6px;padding:0.25rem 0.7rem;text-decoration:none;">
+      🏛️ NSE
+    </a>
+  </div>
+</div>"""
+
+    def _section(title: str, items: list, timeframe: str, oversold: bool,
+                 expanded: bool) -> None:
+        if not items:
+            return
+        with st.expander(f"{title} ({len(items)} symbol(s))", expanded=expanded):
+            cols = st.columns(min(3, len(items)))
+            for i, (d, rsi_val) in enumerate(items):
+                with cols[i % 3]:
+                    st.markdown(_card_html(d, rsi_val, timeframe, oversold),
+                                unsafe_allow_html=True)
+
+    daily_os   = [(d, d.daily_rsi)   for d in valid if d.daily_rsi   is not None and d.daily_rsi   < 35]
+    daily_ob   = [(d, d.daily_rsi)   for d in valid if d.daily_rsi   is not None and d.daily_rsi   > 70]
+    weekly_os  = [(d, d.weekly_rsi)  for d in valid if d.weekly_rsi  is not None and d.weekly_rsi  < 35]
+    weekly_ob  = [(d, d.weekly_rsi)  for d in valid if d.weekly_rsi  is not None and d.weekly_rsi  > 70]
+    monthly_os = [(d, d.monthly_rsi) for d in valid if d.monthly_rsi is not None and d.monthly_rsi < 35]
+    monthly_ob = [(d, d.monthly_rsi) for d in valid if d.monthly_rsi is not None and d.monthly_rsi > 70]
+
+    daily_os.sort(key=lambda x: x[1])
+    weekly_os.sort(key=lambda x: x[1])
+    monthly_os.sort(key=lambda x: x[1])
+    daily_ob.sort(key=lambda x: x[1], reverse=True)
+    weekly_ob.sort(key=lambda x: x[1], reverse=True)
+    monthly_ob.sort(key=lambda x: x[1], reverse=True)
+
+    st.markdown("### 📊 RSI Signal Sections")
+
+    _section("🟢 Daily RSI < 35 — Oversold (Daily)",    daily_os,   "Daily",   True,  True)
+    _section("🔴 Daily RSI > 70 — Overbought (Daily)",   daily_ob,   "Daily",   False, False)
+    _section("🟢 Weekly RSI < 35 — Oversold (Weekly)",   weekly_os,  "Weekly",  True,  False)
+    _section("🔴 Weekly RSI > 70 — Overbought (Weekly)", weekly_ob,  "Weekly",  False, False)
+    _section("🟢 Monthly RSI < 35 — Oversold (Monthly)", monthly_os, "Monthly", True,  False)
+    _section("🔴 Monthly RSI > 70 — Overbought (Monthly)",monthly_ob,"Monthly", False, False)
+
+    if not any([daily_os, daily_ob, weekly_os, weekly_ob, monthly_os, monthly_ob]):
+        st.info("No RSI signals found. All values are between 35 and 70.")
+
+
 # ── GURU SMART BUSINESS ───────────────────────────────────────────────────────
 
 def render_guru_smart_business():
-    st.markdown("## 🏪 GURU SMART BUSINESS")
     tab_dd, tab_ll, tab_eff = st.tabs(["🛒 Daily Dukaan", "🌱 Life Long ETFs", "🌳 Eshwarana Fruit Forest"])
     with tab_dd:
         _render_daily_dukaan()
@@ -6077,5 +6558,7 @@ else:
         render_technicals()
     elif section == "guru_smart_business":
         render_guru_smart_business()
+    elif section == "rsi_screener":
+        render_rsi_screener()
     elif section == "admin" and st.session_state.user and st.session_state.user.get("is_admin"):
         render_admin()
