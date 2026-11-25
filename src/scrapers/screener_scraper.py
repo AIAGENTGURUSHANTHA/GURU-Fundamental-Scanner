@@ -34,6 +34,8 @@ class ScreenerScraper(BaseScraper):
         })
         self._session_ready = False
         self._is_authenticated = False
+        # Cache which URL path works per symbol to avoid double-fetching
+        self._url_cache: dict = {}   # sym → "consolidated/" or ""
 
     # ── Session bootstrap ─────────────────────────────────────────────────────
 
@@ -108,10 +110,18 @@ class ScreenerScraper(BaseScraper):
     def fetch_company_data(self, symbol: str) -> Optional[Dict[str, Any]]:
         self._ensure_session()
         sym = symbol.strip().upper()
-        # Try consolidated view first — matches screener website default and gives richer data
+        # Use cached URL path if we already know what works for this symbol
+        if sym in self._url_cache:
+            return self._fetch_page(sym, self._url_cache[sym])
+        # Try consolidated first (richer data, matches screener website default)
         data = self._fetch_page(sym, "consolidated/")
-        if data is None:
-            data = self._fetch_page(sym, "")
+        if data is not None:
+            self._url_cache[sym] = "consolidated/"
+            return data
+        # Fall back to standalone
+        data = self._fetch_page(sym, "")
+        if data is not None:
+            self._url_cache[sym] = ""
         return data
 
     # ── Page fetch ────────────────────────────────────────────────────────────

@@ -56,7 +56,16 @@ st.markdown("""
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
 """, unsafe_allow_html=True)
 
-_aggregator = DataAggregator()
+
+@st.cache_resource
+def _get_aggregator() -> DataAggregator:
+    """Cache the aggregator (and its scraper session) across Streamlit reruns.
+    Without this, every rerun creates a fresh ScreenerScraper session which
+    causes screener.in to rate-limit the server IP after a few page loads."""
+    return DataAggregator()
+
+
+_aggregator = _get_aggregator()
 _parser = FileParser()
 
 
@@ -1675,11 +1684,15 @@ def render_sidebar():
             except Exception:
                 pass
         if _pledging_configured:
-            st.caption("🔐 screener.in auth active — Pledged % data enabled")
+            st.caption("🔐 screener.in login active — full data + Pledged % enabled")
         else:
-            st.caption(
-                "ℹ️ Pledged % shows N/A — set **SCREENER_USERNAME** & **SCREENER_PASSWORD** "
-                "in Streamlit secrets to enable promoter pledging data."
+            st.warning(
+                "⚠️ **screener.in not logged in.**  \n"
+                "Add these to **Streamlit Cloud → App Settings → Secrets**:  \n"
+                "```\n[screener]\nusername = \"aiagentgurushantha@gmail.com\"\n"
+                "password = \"Neelam@1986\"\n```  \n"
+                "Without login, screener.in may block the server and show None values.",
+                icon=None,
             )
 
 
