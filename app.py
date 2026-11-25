@@ -2341,8 +2341,8 @@ def _render_etf_ema_table(ema_list: list) -> None:
         _live_btn("etf_ema", "etf_ema_do_refresh", "etf_ema_live_table")
 
     retrieved  = df["Price (₹)"].notna().sum()
-    ref_dates  = df["Ref Date"].dropna()
-    latest_ref = ref_dates.iloc[0] if not ref_dates.empty else "—"
+    _all_ref_dates = [d.ref_date for d in ema_list if d.ref_date and not d.error]
+    latest_ref = max(_all_ref_dates) if _all_ref_dates else "—"
     c1, c2, c3 = st.columns(3)
     c1.metric("ETFs Scanned",    len(df))
     c2.metric("Data Retrieved",  int(retrieved))
@@ -2526,10 +2526,13 @@ def _render_etf_analysis():
         st.session_state["etf_ema_date_picker"] = today
     dcol1, dcol2 = st.columns([2, 5])
     with dcol1:
-        saved_date  = st.session_state.get("etf_ema_ref_date") or today
+        _saved_date = st.session_state.get("etf_ema_ref_date") or today
+        # Reset stale weekend dates to today so the date picker doesn't start on a Saturday/Sunday
+        if _saved_date.weekday() >= 5:
+            _saved_date = today
         ref_date_val = st.date_input(
             "Reference Date",
-            value=saved_date,
+            value=_saved_date,
             max_value=today,
             help="EMA values are calculated as of this date. Weekends / market holidays auto-roll back to the previous trading day.",
             key="etf_ema_date_picker",
@@ -2623,18 +2626,19 @@ def _render_etf_analysis():
             f"{', '.join(symbols[:15])}{'…' if len(symbols) > 15 else ''}"
         )
         _do_etf_ema_fetch(symbols, scan_name, ref_date=ref_date_val, scheme_map=scheme_map)
-        # Snap date picker to actual trading day
-        for _rd in st.session_state.get("etf_ema_data", []):
-            if _rd.ref_date and not _rd.error:
-                try:
-                    from datetime import date as _dp
-                    _actual = _dp.fromisoformat(_rd.ref_date)
-                    if _actual != ref_date_val:
-                        st.session_state["etf_ema_date_picker"] = _actual
-                        st.rerun()
-                except Exception:
-                    pass
-                break
+        # Snap date picker to actual trading day (use max across all results)
+        _snap_dates = [r.ref_date for r in st.session_state.get("etf_ema_data", [])
+                       if r.ref_date and not r.error]
+        if _snap_dates:
+            try:
+                from datetime import date as _dp
+                _actual = _dp.fromisoformat(max(_snap_dates))
+                if _actual != ref_date_val:
+                    st.session_state["etf_ema_date_picker"] = _actual
+                    st.session_state["etf_ema_ref_date"] = _actual
+                    st.rerun()
+            except Exception:
+                pass
 
     # ── Refresh ───────────────────────────────────────────────────────────────
     if st.session_state.get("etf_ema_do_refresh"):
@@ -2647,18 +2651,19 @@ def _render_etf_analysis():
             scan_name  = st.session_state.get("etf_ema_active_scan_name") or "ETF EMA Refresh"
             st.markdown(f"**Refreshing EMA for {len(syms)} ETF(s)…**")
             _do_etf_ema_fetch(syms, scan_name, ref_date=ref_date_val, scheme_map=scheme_map)
-            # Snap date picker
-            for _rd in st.session_state.get("etf_ema_data", []):
-                if _rd.ref_date and not _rd.error:
-                    try:
-                        from datetime import date as _dp2
-                        _actual2 = _dp2.fromisoformat(_rd.ref_date)
-                        if _actual2 != ref_date_val:
-                            st.session_state["etf_ema_date_picker"] = _actual2
-                            st.rerun()
-                    except Exception:
-                        pass
-                    break
+            # Snap date picker to actual trading day (use max across all results)
+            _snap_dates2 = [r.ref_date for r in st.session_state.get("etf_ema_data", [])
+                            if r.ref_date and not r.error]
+            if _snap_dates2:
+                try:
+                    from datetime import date as _dp2
+                    _actual2 = _dp2.fromisoformat(max(_snap_dates2))
+                    if _actual2 != ref_date_val:
+                        st.session_state["etf_ema_date_picker"] = _actual2
+                        st.session_state["etf_ema_ref_date"] = _actual2
+                        st.rerun()
+                except Exception:
+                    pass
 
     # ── Render results ────────────────────────────────────────────────────────
     ema_data = st.session_state.get("etf_ema_data", [])
