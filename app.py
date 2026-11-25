@@ -5058,15 +5058,36 @@ def _render_holdings_tab(asset_type: str) -> None:
     live_prices = st.session_state.get("holdings_live_prices", {})
     edit_id     = st.session_state.get("holdings_edit_id")
 
-    # ── Fetch button ──────────────────────────────────────────────────────────
     holdings = db.get_holdings(user_phone, asset_type)
+
+    # ── Auto-fetch live prices (runs on every render, 5-min TTL) ─────────────
+    _open_buy_pre = [
+        h for h in holdings
+        if h.get("transaction_type", "BUY") == "BUY"
+        and (h.get("remaining_qty") or 0) > 0.0001
+        and not h.get("sell_date")
+    ]
+    _open_syms = list({h["symbol"] for h in _open_buy_pre})
+    if _open_syms:
+        _fkey  = f"holdings_prices_at_{asset_type}"
+        _last  = st.session_state.get(_fkey)
+        _miss  = any(s not in live_prices for s in _open_syms)
+        _stale = (_last is None or
+                  (datetime.now() - _last).total_seconds() > 300)
+        if _miss or _stale:
+            with st.spinner("📡 Fetching live NSE prices for open positions…"):
+                _fresh = _fetch_nse_live_prices_bulk(_open_syms)
+            _new = dict(live_prices)
+            _new.update({s: v["price"] for s, v in _fresh.items() if v.get("price")})
+            st.session_state["holdings_live_prices"] = _new
+            st.session_state[_fkey] = datetime.now()
+            live_prices = _new
 
     # ── Summary bar + Portfolio card ──────────────────────────────────────────
     if holdings:
         buy_rows  = [h for h in holdings if h.get("transaction_type", "BUY") == "BUY"]
         sell_rows = [h for h in holdings if h.get("transaction_type", "BUY") == "SELL"]
-        open_buy  = [h for h in buy_rows
-                     if (h.get("remaining_qty") or 0) > 0.0001 and not h.get("sell_date")]
+        open_buy  = _open_buy_pre   # already computed above
 
         # Compute portfolio numbers for the summary card
         invested_open    = sum(
@@ -5149,29 +5170,25 @@ def _render_holdings_tab(asset_type: str) -> None:
         else:
             c5.metric("Virtual P&L (open)", "—")
 
-        # Live price refresh
-        open_syms = list({h["symbol"] for h in open_buy})
-        if open_syms:
+        # Manual force-refresh + last-fetched timestamp
+        if _open_syms:
             lc1, lc2 = st.columns([1, 5])
             with lc1:
-                if st.button("📡 Refresh Prices", key=f"hlive_{asset_type}",
+                if st.button("🔄 Refresh Now", key=f"hlive_{asset_type}",
                              use_container_width=True):
-                    slot = st.empty()
-                    slot.markdown(_spinner_html("📡 Fetching live NSE prices for open positions…"),
-                                  unsafe_allow_html=True)
-                    fresh = _fetch_nse_live_prices_bulk(open_syms)
-                    updated = dict(live_prices)
-                    updated.update({s: v["price"] for s, v in fresh.items()})
-                    st.session_state["holdings_live_prices"] = updated
-                    live_prices = updated
-                    slot.empty()
+                    st.session_state.pop(f"holdings_prices_at_{asset_type}", None)
                     st.rerun()
             with lc2:
-                fetched = [s for s in open_syms if s in live_prices]
-                if fetched:
-                    st.caption(f"Live prices loaded for: {', '.join(fetched)}")
+                _last_at = st.session_state.get(f"holdings_prices_at_{asset_type}")
+                if _last_at:
+                    _ago = int((datetime.now() - _last_at).total_seconds())
+                    fetched_syms = [s for s in _open_syms if s in live_prices]
+                    st.caption(
+                        f"✅ Auto-updated {_ago}s ago — {', '.join(fetched_syms)}. "
+                        f"Auto-refreshes every 5 min."
+                    )
                 else:
-                    st.caption("Click Refresh Prices to load live NSE prices for open positions.")
+                    st.caption("Prices will be fetched automatically on next render.")
         st.markdown("---")
 
     # ── Add / Edit form (branches on BUY vs SELL) ─────────────────────────────
@@ -5486,8 +5503,6 @@ def _render_holdings_tab(asset_type: str) -> None:
 
     if open_buy_rows:
         st.markdown("### 📂 Open Positions")
-        if not any(live_prices.get(h["symbol"]) for h in open_buy_rows):
-            st.caption("💡 Click **📡 Refresh Prices** above to see virtual P&L vs current market price.")
 
         _g = "#dcfce7"; _r = "#fee2e2"; _gc = "#15803d"; _rc = "#b91c1c"
         if dark:
