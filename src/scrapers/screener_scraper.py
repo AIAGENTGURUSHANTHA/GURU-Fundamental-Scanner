@@ -63,9 +63,15 @@ class ScreenerScraper(BaseScraper):
         if not username or not password:
             try:
                 import streamlit as st
+                # Check [screener] section first
                 cfg = st.secrets.get("screener", {})
                 username = cfg.get("username") or cfg.get("email")
                 password = cfg.get("password")
+                # Fall back to top-level keys (user may have entered without a section header)
+                if not username:
+                    username = st.secrets.get("username") or st.secrets.get("email") or st.secrets.get("SCREENER_USERNAME")
+                if not password:
+                    password = st.secrets.get("password") or st.secrets.get("SCREENER_PASSWORD")
             except Exception:
                 pass
 

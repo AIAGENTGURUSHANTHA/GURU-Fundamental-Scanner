@@ -1681,6 +1681,11 @@ def render_sidebar():
             try:
                 _cfg = st.secrets.get("screener", {})
                 _pledging_configured = bool(_cfg.get("username") or _cfg.get("email"))
+                # Also check top-level keys (user may enter without [screener] section)
+                if not _pledging_configured:
+                    _pledging_configured = bool(
+                        st.secrets.get("username") or st.secrets.get("email") or st.secrets.get("SCREENER_USERNAME")
+                    )
             except Exception:
                 pass
         if _pledging_configured:
