@@ -125,6 +125,9 @@ class DatabaseManager:
                 bind=self.engine, autocommit=False, autoflush=False
             )
             self._initialized = True
+
+    @contextmanager
+    def get_session(self):
         session: Session = self.SessionLocal()
         try:
             yield session
