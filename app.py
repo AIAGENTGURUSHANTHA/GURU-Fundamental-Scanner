@@ -5039,74 +5039,139 @@ def _render_holdings_tab(asset_type: str) -> None:
     if edit_id is not None:
         editing = next((h for h in holdings if h["id"] == edit_id), None)
 
-    form_title = f"✏️ Edit Holding #{edit_id}" if editing else "➕ Add New Holding"
+    _k      = f"hf_{asset_type}_"   # form state key prefix
+    target  = editing["id"] if editing else "new"
+
+    # Initialize / re-initialize form state when target changes or after reset
+    if st.session_state.get(f"{_k}target") != target:
+        from datetime import date as _di
+        st.session_state[f"{_k}sym"]        = editing["symbol"]                       if editing else ""
+        st.session_state[f"{_k}name"]       = (editing.get("company_name") or "")     if editing else ""
+        st.session_state[f"{_k}buy_date"]   = _di.fromisoformat(editing["buy_date"])  if editing else _di.today()
+        st.session_state[f"{_k}buy_price"]  = float(editing["buy_price"])             if editing else 0.0
+        st.session_state[f"{_k}buy_qty"]    = float(editing["buy_qty"])               if editing else 0.0
+        _hs = bool(editing and editing.get("sell_date"))
+        st.session_state[f"{_k}has_sell"]   = _hs
+        st.session_state[f"{_k}sell_date"]  = (_di.fromisoformat(editing["sell_date"]) if _hs else _di.today())
+        st.session_state[f"{_k}sell_price"] = float(editing["sell_price"] or 0)       if editing else 0.0
+        st.session_state[f"{_k}sell_qty"]   = float(editing["sell_qty"]   or 0)       if editing else 0.0
+        st.session_state[f"{_k}notes"]      = (editing.get("notes") or "")            if editing else ""
+        st.session_state[f"{_k}target"]     = target
+        st.session_state[f"{_k}lookup"]     = ""   # no pending lookup
+
+    # Auto-fetch company name when symbol changes (triggered by on_change)
+    pending_sym = st.session_state.get(f"{_k}lookup", "")
+    if pending_sym:
+        st.session_state[f"{_k}lookup"] = ""
+        cached = st.session_state.get(f"_yf_name_{pending_sym}")
+        if cached is not None:
+            if cached:
+                st.session_state[f"{_k}name"] = cached
+        else:
+            with st.spinner(f"🔍 Looking up company name for {pending_sym}…"):
+                try:
+                    import yfinance as _yf
+                    _t = _yf.Ticker(f"{pending_sym}.NS")
+                    _name = ""
+                    try:
+                        _fi = _t.fast_info
+                        for _a in ("long_name", "longName", "short_name", "shortName"):
+                            _v = getattr(_fi, _a, None)
+                            if _v:
+                                _name = str(_v); break
+                    except Exception:
+                        pass
+                    if not _name:
+                        _info = _t.info or {}
+                        _name = _info.get("longName") or _info.get("shortName") or ""
+                    st.session_state[f"_yf_name_{pending_sym}"] = _name
+                    if _name:
+                        st.session_state[f"{_k}name"] = _name
+                except Exception:
+                    st.session_state[f"_yf_name_{pending_sym}"] = ""
+
+    def _on_sym_change():
+        sym_val = st.session_state.get(f"{_k}sym", "").strip().upper()
+        if sym_val:
+            st.session_state[f"{_k}lookup"] = sym_val
+
+    form_title = f"✏️ Edit — {editing['symbol']}" if editing else "➕ Add New Holding"
     with st.expander(form_title, expanded=(editing is not None or not holdings)):
-        with st.form(key=f"holding_form_{asset_type}", clear_on_submit=True):
-            fc1, fc2 = st.columns([1, 1])
-            with fc1:
-                sym  = st.text_input("Symbol *", value=editing["symbol"] if editing else "",
-                                     placeholder="e.g. RELIANCE")
-                name = st.text_input("Company Name", value=editing.get("company_name","") if editing else "",
-                                     placeholder="Optional")
-                from datetime import date as _d
-                buy_date_def = _d.fromisoformat(editing["buy_date"]) if editing else _d.today()
-                buy_date = st.date_input("Buy Date *", value=buy_date_def, key=f"bdate_{asset_type}")
-                buy_price = st.number_input("Buy Price (₹) *",
-                                            value=float(editing["buy_price"]) if editing else 0.0,
-                                            min_value=0.0, format="%.4f")
-                buy_qty   = st.number_input("Buy Qty *",
-                                            value=float(editing["buy_qty"]) if editing else 0.0,
-                                            min_value=0.0, format="%.4f")
-            with fc2:
-                st.markdown("**Sell Details** *(leave blank if still holding)*")
-                has_sell  = editing and editing.get("sell_date")
-                sell_date_def = _d.fromisoformat(editing["sell_date"]) if has_sell else _d.today()
-                sell_date_inp = st.date_input("Sell Date", value=sell_date_def,
-                                              key=f"sdate_{asset_type}")
-                sell_price = st.number_input("Sell Price (₹)",
-                                             value=float(editing["sell_price"]) if editing and editing.get("sell_price") else 0.0,
-                                             min_value=0.0, format="%.4f")
-                sell_qty   = st.number_input("Sell Qty",
-                                             value=float(editing["sell_qty"]) if editing and editing.get("sell_qty") else 0.0,
-                                             min_value=0.0, format="%.4f")
-                sold_toggle = st.checkbox("Mark as Sold", value=bool(has_sell),
-                                          key=f"sold_{asset_type}")
-                notes = st.text_area("Notes", value=editing.get("notes","") if editing else "",
-                                     height=68)
+        fc1, fc2 = st.columns([1, 1])
+        with fc1:
+            st.text_input(
+                "Symbol *",
+                key=f"{_k}sym",
+                placeholder="e.g. RELIANCE",
+                on_change=_on_sym_change,
+                help="Tab out after entering the symbol — company name is fetched automatically",
+            )
+            st.text_input(
+                "Company Name",
+                key=f"{_k}name",
+                placeholder="Auto-filled when symbol is entered · editable",
+            )
+            st.date_input("Buy Date *", key=f"{_k}buy_date", max_value=date.today())
+            st.number_input("Buy Price (₹) *", key=f"{_k}buy_price",
+                            min_value=0.0, format="%.4f")
+            st.number_input("Buy Qty *", key=f"{_k}buy_qty",
+                            min_value=0.0, format="%.4f")
+        with fc2:
+            st.markdown("**Sell Details** *(leave blank if still holding)*")
+            st.checkbox("Mark as Sold", key=f"{_k}has_sell")
+            if st.session_state.get(f"{_k}has_sell"):
+                st.date_input("Sell Date", key=f"{_k}sell_date", max_value=date.today())
+                st.number_input("Sell Price (₹)", key=f"{_k}sell_price",
+                                min_value=0.0, format="%.4f")
+                st.number_input("Sell Qty", key=f"{_k}sell_qty",
+                                min_value=0.0, format="%.4f")
+            st.text_area("Notes", key=f"{_k}notes", height=68)
 
-            sc1, sc2 = st.columns([1, 1])
-            with sc1:
-                submitted = st.form_submit_button("💾 Save", type="primary", use_container_width=True)
-            with sc2:
-                cancelled = st.form_submit_button("✖ Cancel", use_container_width=True)
-
-        if cancelled:
-            st.session_state["holdings_edit_id"] = None
-            st.rerun()
-
-        if submitted:
-            if not sym.strip():
-                st.error("Symbol is required.")
-            elif buy_price <= 0 or buy_qty <= 0:
-                st.error("Buy Price and Buy Qty must be greater than zero.")
-            else:
-                payload = {
-                    "symbol":       sym.strip().upper(),
-                    "company_name": name.strip(),
-                    "buy_date":     str(buy_date),
-                    "buy_price":    buy_price,
-                    "buy_qty":      buy_qty,
-                    "sell_date":    str(sell_date_inp) if sold_toggle else None,
-                    "sell_price":   sell_price if (sold_toggle and sell_price > 0) else None,
-                    "sell_qty":     sell_qty   if (sold_toggle and sell_qty   > 0) else None,
-                    "notes":        notes,
-                }
-                if editing:
-                    db.update_holding(editing["id"], user_phone, payload)
-                    st.success(f"✅ Updated {sym.strip().upper()}")
+        sc1, sc2 = st.columns([1, 1])
+        with sc1:
+            if st.button("💾 Save", type="primary", use_container_width=True,
+                         key=f"{_k}save_btn"):
+                sym_val   = st.session_state.get(f"{_k}sym", "").strip().upper()
+                buy_price = float(st.session_state.get(f"{_k}buy_price", 0))
+                buy_qty   = float(st.session_state.get(f"{_k}buy_qty",   0))
+                if not sym_val:
+                    st.error("Symbol is required.")
+                elif buy_price <= 0 or buy_qty <= 0:
+                    st.error("Buy Price and Buy Qty must be greater than zero.")
                 else:
-                    db.add_holding(user_phone, asset_type, payload)
-                    st.success(f"✅ Added {sym.strip().upper()}")
+                    has_sell   = st.session_state.get(f"{_k}has_sell", False)
+                    sell_price = float(st.session_state.get(f"{_k}sell_price", 0))
+                    sell_qty   = float(st.session_state.get(f"{_k}sell_qty",   0))
+                    payload = {
+                        "symbol":       sym_val,
+                        "company_name": st.session_state.get(f"{_k}name", "").strip(),
+                        "buy_date":     str(st.session_state.get(f"{_k}buy_date", date.today())),
+                        "buy_price":    buy_price,
+                        "buy_qty":      buy_qty,
+                        "sell_date":    str(st.session_state.get(f"{_k}sell_date", date.today())) if has_sell else None,
+                        "sell_price":   sell_price if (has_sell and sell_price > 0) else None,
+                        "sell_qty":     sell_qty   if (has_sell and sell_qty   > 0) else None,
+                        "notes":        st.session_state.get(f"{_k}notes", ""),
+                    }
+                    if editing:
+                        db.update_holding(editing["id"], user_phone, payload)
+                        st.success(f"✅ Updated {sym_val}")
+                    else:
+                        db.add_holding(user_phone, asset_type, payload)
+                        st.success(f"✅ Added {sym_val}")
+                    # Reset form for next entry
+                    for _sfx in ("sym","name","buy_date","buy_price","buy_qty",
+                                 "has_sell","sell_date","sell_price","sell_qty",
+                                 "notes","lookup","target"):
+                        st.session_state.pop(f"{_k}{_sfx}", None)
+                    st.session_state["holdings_edit_id"] = None
+                    st.rerun()
+        with sc2:
+            if st.button("✖ Cancel", use_container_width=True, key=f"{_k}cancel_btn"):
+                for _sfx in ("sym","name","buy_date","buy_price","buy_qty",
+                             "has_sell","sell_date","sell_price","sell_qty",
+                             "notes","lookup","target"):
+                    st.session_state.pop(f"{_k}{_sfx}", None)
                 st.session_state["holdings_edit_id"] = None
                 st.rerun()
 
