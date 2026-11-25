@@ -5166,7 +5166,14 @@ def _render_holdings_tab(asset_type: str) -> None:
         c3.metric("SELL Transactions", len(sell_rows))
         c4.metric("Total Invested",    f"₹{total_invested:,.2f}")
         if virt_cnt > 0:
-            c5.metric("Virtual P&L (open)", f"₹{virt_pnl:+,.2f}")
+            _pnl_col = ("#4ade80" if virt_pnl >= 0 else "#f87171") if dark else ("#15803d" if virt_pnl >= 0 else "#b91c1c")
+            c5.markdown(
+                f'<div style="line-height:1.2;">'
+                f'<div style="font-size:0.8rem;color:#64748b;">Virtual P&amp;L (open)</div>'
+                f'<div style="font-size:1.4rem;font-weight:700;color:{_pnl_col};">₹{virt_pnl:+,.2f}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
         else:
             c5.metric("Virtual P&L (open)", "—")
 
