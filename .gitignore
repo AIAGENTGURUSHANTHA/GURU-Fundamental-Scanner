@@ -37,3 +37,7 @@ desktop.ini
 .vscode/
 *.swp
 *.swo
+
+# ── Local guides (not part of the codebase) ──────────────────────────────────
+DeployToCloud.txt
+RunInMac.txt

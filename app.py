@@ -69,9 +69,69 @@ _aggregator = _get_aggregator()
 _parser = FileParser()
 
 
+# ── Session token store (survives page refresh) ───────────────────────────────
+
+@st.cache_resource
+def _get_session_store() -> dict:
+    """Server-side session token store. Persists across reruns; cleared on server restart."""
+    return {}
+
+
+def _create_session_token(user: dict) -> str:
+    import secrets
+    token = secrets.token_urlsafe(32)
+    _get_session_store()[token] = {"user": user, "ts": datetime.utcnow()}
+    return token
+
+
+def _get_session_user(token: str):
+    store = _get_session_store()
+    entry = store.get(token)
+    if not entry:
+        return None
+    if (datetime.utcnow() - entry["ts"]).days > 7:
+        store.pop(token, None)
+        return None
+    return entry["user"]
+
+
+def _revoke_session_token(token: str) -> None:
+    _get_session_store().pop(token, None)
+
+
+def _spinner_html(msg: str) -> str:
+    """Return HTML for an inline circular spinner + message."""
+    return (
+        "<div style='display:flex;align-items:center;gap:0.6rem;"
+        "padding:0.55rem 0.85rem;background:rgba(59,130,246,0.08);"
+        "border-radius:8px;margin:0.1rem 0'>"
+        "<div style='width:20px;height:20px;border:2.5px solid #cbd5e1;"
+        "border-top-color:#3b82f6;border-radius:50%;"
+        "animation:_guru_spin 0.7s linear infinite;flex-shrink:0'></div>"
+        f"<span style='font-size:0.88rem;font-weight:500;color:#1d4ed8'>{msg}</span>"
+        "</div>"
+        "<style>@keyframes _guru_spin{to{transform:rotate(360deg)}}</style>"
+    )
+
+
 # ── Session defaults ──────────────────────────────────────────────────────────
 
 def _init():
+    # Auto-restore session from persisted query param (survives page refresh)
+    _tok = st.query_params.get("_s", "")
+    if _tok and not st.session_state.get("authenticated"):
+        _stored = _get_session_user(_tok)
+        if _stored:
+            _db_user = db.get_user(_stored["phone_number"])
+            if _db_user and _db_user.get("is_active"):
+                st.session_state["authenticated"] = True
+                st.session_state["user"]          = _db_user
+            else:
+                _revoke_session_token(_tok)
+                st.query_params.clear()
+        else:
+            st.query_params.clear()
+
     defaults = {
         "authenticated": False,
         "user": None,
@@ -227,41 +287,45 @@ def _live_btn(tab_prefix: str, refresh_key: str, btn_key: str) -> None:
 
 def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
     """
-    Fetch live traded prices from NSE for all symbols in parallel.
-    Uses NSE quote-equity API (requires session cookies — same as ETF fetcher).
+    Fetch live traded prices from NSE for all symbols.
+    Uses nsepython's curl_cffi session (bypasses NSE's Akamai Bot Manager).
+    The old /api/quote-equity endpoint is retired (HTTP 403 as of 2026).
+    Uses the newer GetQuoteApi endpoint instead.
     Returns {symbol: {"price": float, "time": str}}.
     """
-    from src.scrapers.etf_fetcher import _create_nse_session
+    try:
+        from nsepython.rahu import _get_nse_session, headers as _nse_headers
+    except ImportError:
+        return {}
 
-    sess = _create_nse_session()
+    # Session is already warmed by equity_history calls in Step 1 of each fetcher,
+    # so individual requests here are ~150 ms each.
+    sess = _get_nse_session()
     out: dict = {}
 
-    def _one(sym: str):
+    for sym in symbols:
+        url = (
+            "https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
+            f"?functionName=getSymbolData&marketType=N&series=EQ&symbol={sym}"
+        )
         try:
-            resp = sess.get(
-                f"https://www.nseindia.com/api/quote-equity?symbol={sym}",
-                timeout=10,
-            )
-            if resp.ok:
-                j     = resp.json()
-                price = j.get("priceInfo", {}).get("lastPrice")
-                ts    = (j.get("metadata", {}).get("lastUpdateTime") or
-                         j.get("priceInfo",  {}).get("lastUpdateTime") or "")
-                if price is not None:
-                    return sym, {
-                        "price": float(str(price).replace(",", "")),
-                        "time":  str(ts),
-                    }
+            resp = sess.get(url, headers=_nse_headers, timeout=10)
+            if resp.status_code == 200:
+                j  = resp.json()
+                eq = j.get("equityResponse", [{}])
+                if eq:
+                    r     = eq[0]
+                    order = r.get("orderBook", {}) or {}
+                    trade = r.get("tradeInfo", {}) or {}
+                    price = order.get("lastPrice") or trade.get("lastPrice")
+                    ts    = r.get("lastUpdateTime", "") or ""
+                    if price is not None:
+                        out[sym] = {
+                            "price": float(str(price).replace(",", "")),
+                            "time":  str(ts),
+                        }
         except Exception:
             pass
-        return sym, None
-
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_one, s): s for s in symbols}
-        for future in as_completed(futures):
-            sym, val = future.result()
-            if val:
-                out[sym] = val
 
     return out
 
@@ -324,7 +388,7 @@ def _do_fetch(symbols: list, scan_name: str, save_to_history: bool = False,
     slot = st.empty()
     results = []
     for i, sym in enumerate(symbols):
-        slot.markdown(f"⏳ Fetching **{sym}** ({i+1}/{len(symbols)})…")
+        slot.markdown(_spinner_html(f"⏳ Fetching <b>{sym}</b> ({i+1}/{len(symbols)})…"), unsafe_allow_html=True)
         results.append(_aggregator.fetch_stock(sym))
         progress.progress((i + 1) / len(symbols))
         if i < len(symbols) - 1:
@@ -353,13 +417,13 @@ def _do_dma_fetch(symbols: list, scan_name: str, ref_date=None,
     slot = st.empty()
 
     if len(symbols) == 1:
-        slot.info(f"⏳ Fetching DMA for **{symbols[0]}**…")
+        slot.markdown(_spinner_html(f"⏳ Fetching DMA for <b>{symbols[0]}</b>…"), unsafe_allow_html=True)
         results = [fetcher.fetch_dma(symbols[0], ref_date)]
         slot.empty()
     else:
         results_map: dict = {}
         done_count = [0]
-        slot.info(f"⏳ Fetching DMA for {len(symbols)} symbols in parallel…  0 / {len(symbols)}")
+        slot.markdown(_spinner_html(f"⏳ Fetching DMA for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
         with ThreadPoolExecutor(max_workers=5) as ex:
             futures = {ex.submit(fetcher.fetch_dma, sym, ref_date): sym for sym in symbols}
@@ -370,9 +434,9 @@ def _do_dma_fetch(symbols: list, scan_name: str, ref_date=None,
                 except Exception as exc:
                     results_map[sym] = _DMAData(symbol=sym, error=str(exc))
                 done_count[0] += 1
-                slot.info(
-                    f"⏳ Fetching DMA for {len(symbols)} symbols in parallel…  "
-                    f"{done_count[0]} / {len(symbols)}"
+                slot.markdown(
+                    _spinner_html(f"⏳ Fetching DMA for {len(symbols)} symbols…  {done_count[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
                 )
 
         slot.empty()
@@ -386,10 +450,13 @@ def _do_dma_fetch(symbols: list, scan_name: str, ref_date=None,
     is_weekday  = date.today().weekday() < 5
     today_sess  = is_today and is_weekday
 
-    nse_slot.info(
-        "📡 Fetching live NSE prices…" if market_open
-        else "📡 Fetching today's closing prices from NSE…" if today_sess
-        else "📡 Fetching last-close prices from NSE…"
+    nse_slot.markdown(
+        _spinner_html(
+            "📡 Fetching live NSE prices…" if market_open
+            else "📡 Fetching today's closing prices from NSE…" if today_sess
+            else "📡 Fetching last-close prices from NSE…"
+        ),
+        unsafe_allow_html=True,
     )
     try:
         nse_px = _fetch_nse_live_prices_bulk(symbols)
@@ -482,13 +549,13 @@ def _do_ema_fetch(symbols: list, scan_name: str, ref_date=None,
     slot = st.empty()
 
     if len(symbols) == 1:
-        slot.info(f"⏳ Fetching EMA for **{symbols[0]}**…")
+        slot.markdown(_spinner_html(f"⏳ Fetching EMA for <b>{symbols[0]}</b>…"), unsafe_allow_html=True)
         results = [fetcher.fetch_ema(symbols[0], ref_date)]
         slot.empty()
     else:
         results_map: dict = {}
         done_count = [0]
-        slot.info(f"⏳ Fetching EMA for {len(symbols)} symbols in parallel…  0 / {len(symbols)}")
+        slot.markdown(_spinner_html(f"⏳ Fetching EMA for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
         with ThreadPoolExecutor(max_workers=5) as ex:
             futures = {ex.submit(fetcher.fetch_ema, sym, ref_date): sym for sym in symbols}
@@ -499,9 +566,9 @@ def _do_ema_fetch(symbols: list, scan_name: str, ref_date=None,
                 except Exception as exc:
                     results_map[sym] = _EMAData(symbol=sym, error=str(exc))
                 done_count[0] += 1
-                slot.info(
-                    f"⏳ Fetching EMA for {len(symbols)} symbols in parallel…  "
-                    f"{done_count[0]} / {len(symbols)}"
+                slot.markdown(
+                    _spinner_html(f"⏳ Fetching EMA for {len(symbols)} symbols…  {done_count[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
                 )
 
         slot.empty()
@@ -515,10 +582,13 @@ def _do_ema_fetch(symbols: list, scan_name: str, ref_date=None,
     is_weekday  = date.today().weekday() < 5
     today_sess  = is_today and is_weekday
 
-    nse_slot.info(
-        "📡 Fetching live NSE prices…" if market_open
-        else "📡 Fetching today's closing prices from NSE…" if today_sess
-        else "📡 Fetching last-close prices from NSE…"
+    nse_slot.markdown(
+        _spinner_html(
+            "📡 Fetching live NSE prices…" if market_open
+            else "📡 Fetching today's closing prices from NSE…" if today_sess
+            else "📡 Fetching last-close prices from NSE…"
+        ),
+        unsafe_allow_html=True,
     )
     try:
         nse_px = _fetch_nse_live_prices_bulk(symbols)
@@ -610,13 +680,13 @@ def _do_guru_buy_fetch(symbols: list, scan_name: str, ref_date=None,
     slot = st.empty()
 
     if len(symbols) == 1:
-        slot.info(f"⏳ Fetching GURU BUY for **{symbols[0]}**…")
+        slot.markdown(_spinner_html(f"⏳ Fetching GURU BUY for <b>{symbols[0]}</b>…"), unsafe_allow_html=True)
         results = [fetcher.fetch(symbols[0], ref_date)]
         slot.empty()
     else:
         results_map: dict = {}
         done_count = [0]
-        slot.info(f"⏳ Calculating GURU BUY for {len(symbols)} symbols…  0 / {len(symbols)}")
+        slot.markdown(_spinner_html(f"⏳ Calculating GURU BUY for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
         with ThreadPoolExecutor(max_workers=5) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
@@ -626,9 +696,9 @@ def _do_guru_buy_fetch(symbols: list, scan_name: str, ref_date=None,
                 except Exception as exc:
                     results_map[sym] = _GBD(symbol=sym, error=str(exc))
                 done_count[0] += 1
-                slot.info(
-                    f"⏳ Calculating GURU BUY for {len(symbols)} symbols…  "
-                    f"{done_count[0]} / {len(symbols)}"
+                slot.markdown(
+                    _spinner_html(f"⏳ Calculating GURU BUY for {len(symbols)} symbols…  {done_count[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
                 )
         slot.empty()
         results = [results_map.get(s, _GBD(symbol=s, error="Not fetched")) for s in symbols]
@@ -641,10 +711,13 @@ def _do_guru_buy_fetch(symbols: list, scan_name: str, ref_date=None,
     is_weekday  = date.today().weekday() < 5
     today_sess  = is_today and is_weekday
 
-    nse_slot.info(
-        "📡 Fetching live NSE prices…" if market_open
-        else "📡 Fetching today's closing prices from NSE…" if today_sess
-        else "📡 Fetching last-close prices from NSE…"
+    nse_slot.markdown(
+        _spinner_html(
+            "📡 Fetching live NSE prices…" if market_open
+            else "📡 Fetching today's closing prices from NSE…" if today_sess
+            else "📡 Fetching last-close prices from NSE…"
+        ),
+        unsafe_allow_html=True,
     )
     try:
         nse_px = _fetch_nse_live_prices_bulk(symbols)
@@ -760,13 +833,13 @@ def _do_dd_fetch(symbols: list, scan_name: str, ref_date=None,
 
     # ── Step 1: 20 DMA via NSE India (nsepython) with Yahoo Finance fallback ───
     if len(symbols) == 1:
-        slot.info(f"⏳ Fetching 20 DMA for **{symbols[0]}** from NSE India…")
+        slot.markdown(_spinner_html(f"⏳ Fetching 20 DMA for <b>{symbols[0]}</b> from NSE India…"), unsafe_allow_html=True)
         results = [fetcher.fetch(symbols[0], ref_date)]
         slot.empty()
     else:
         results_map: dict = {}
         done_count = [0]
-        slot.info(f"⏳ Fetching 20 DMA from NSE India for {len(symbols)} symbols…  0 / {len(symbols)}")
+        slot.markdown(_spinner_html(f"⏳ Fetching 20 DMA from NSE India for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
         with ThreadPoolExecutor(max_workers=10) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
@@ -777,9 +850,9 @@ def _do_dd_fetch(symbols: list, scan_name: str, ref_date=None,
                 except Exception as exc:
                     results_map[sym] = _DD(symbol=sym, error=str(exc))
                 done_count[0] += 1
-                slot.info(
-                    f"⏳ Fetching 20 DMA from NSE India for {len(symbols)} symbols…  "
-                    f"{done_count[0]} / {len(symbols)}"
+                slot.markdown(
+                    _spinner_html(f"⏳ Fetching 20 DMA from NSE India for {len(symbols)} symbols…  {done_count[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
                 )
 
         slot.empty()
@@ -801,10 +874,13 @@ def _do_dd_fetch(symbols: list, scan_name: str, ref_date=None,
     is_weekday   = date.today().weekday() < 5          # Mon–Fri
     today_session = is_today and is_weekday            # any weekday (open OR just closed)
 
-    nse_slot.info(
-        "📡 Fetching live NSE prices…" if market_open
-        else "📡 Fetching today's closing prices from NSE…" if today_session
-        else "📡 Fetching last-close prices from NSE…"
+    nse_slot.markdown(
+        _spinner_html(
+            "📡 Fetching live NSE prices…" if market_open
+            else "📡 Fetching today's closing prices from NSE…" if today_session
+            else "📡 Fetching last-close prices from NSE…"
+        ),
+        unsafe_allow_html=True,
     )
     try:
         nse_px = _fetch_nse_live_prices_bulk(symbols)
@@ -885,13 +961,13 @@ def _do_smc_fetch(symbols: list, scan_name: str, ref_date=None,
     slot = st.empty()
 
     if len(symbols) == 1:
-        slot.info(f"⏳ Calculating SMC zones for **{symbols[0]}**…")
+        slot.markdown(_spinner_html(f"⏳ Calculating SMC zones for <b>{symbols[0]}</b>…"), unsafe_allow_html=True)
         results = [fetcher.fetch(symbols[0], ref_date)]
         slot.empty()
     else:
         results_map: dict = {}
         done_count = [0]
-        slot.info(f"⏳ Calculating SMC zones for {len(symbols)} symbols…  0 / {len(symbols)}")
+        slot.markdown(_spinner_html(f"⏳ Calculating SMC zones for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
         with ThreadPoolExecutor(max_workers=5) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
@@ -901,9 +977,9 @@ def _do_smc_fetch(symbols: list, scan_name: str, ref_date=None,
                 except Exception as exc:
                     results_map[sym] = _SMCD(symbol=sym, error=str(exc))
                 done_count[0] += 1
-                slot.info(
-                    f"⏳ Calculating SMC zones for {len(symbols)} symbols…  "
-                    f"{done_count[0]} / {len(symbols)}"
+                slot.markdown(
+                    _spinner_html(f"⏳ Calculating SMC zones for {len(symbols)} symbols…  {done_count[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
                 )
         slot.empty()
         results = [results_map.get(s, _SMCD(symbol=s, error="Not fetched")) for s in symbols]
@@ -916,10 +992,13 @@ def _do_smc_fetch(symbols: list, scan_name: str, ref_date=None,
     is_weekday  = date.today().weekday() < 5
     today_sess  = is_today and is_weekday
 
-    nse_slot.info(
-        "📡 Fetching live NSE prices…" if market_open
-        else "📡 Fetching today's closing prices from NSE…" if today_sess
-        else "📡 Fetching last-close prices from NSE…"
+    nse_slot.markdown(
+        _spinner_html(
+            "📡 Fetching live NSE prices…" if market_open
+            else "📡 Fetching today's closing prices from NSE…" if today_sess
+            else "📡 Fetching last-close prices from NSE…"
+        ),
+        unsafe_allow_html=True,
     )
     try:
         nse_px = _fetch_nse_live_prices_bulk(symbols)
@@ -1030,13 +1109,13 @@ def _do_ll_etf_fetch(symbols: list, scan_name: str, ref_date=None,
     slot    = st.empty()
 
     if len(symbols) == 1:
-        slot.info(f"⏳ Fetching Life Long ETF data for **{symbols[0]}**…")
+        slot.markdown(_spinner_html(f"⏳ Fetching Life Long ETF data for <b>{symbols[0]}</b>…"), unsafe_allow_html=True)
         results = [fetcher.fetch(symbols[0], ref_date)]
         slot.empty()
     else:
         results_map: dict = {}
         done_count = [0]
-        slot.info(f"⏳ Fetching Life Long ETF data for {len(symbols)} symbols…  0 / {len(symbols)}")
+        slot.markdown(_spinner_html(f"⏳ Fetching Life Long ETF data for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
         with ThreadPoolExecutor(max_workers=8) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
@@ -1047,9 +1126,9 @@ def _do_ll_etf_fetch(symbols: list, scan_name: str, ref_date=None,
                 except Exception as exc:
                     results_map[sym] = _LLD(symbol=sym, error=str(exc))
                 done_count[0] += 1
-                slot.info(
-                    f"⏳ Fetching Life Long ETF data for {len(symbols)} symbols…  "
-                    f"{done_count[0]} / {len(symbols)}"
+                slot.markdown(
+                    _spinner_html(f"⏳ Fetching Life Long ETF data for {len(symbols)} symbols…  {done_count[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
                 )
 
         slot.empty()
@@ -1063,10 +1142,13 @@ def _do_ll_etf_fetch(symbols: list, scan_name: str, ref_date=None,
     is_weekday    = date.today().weekday() < 5
     today_session = is_today and is_weekday
 
-    nse_slot.info(
-        "📡 Fetching live NSE prices…" if market_open
-        else "📡 Fetching today's closing prices from NSE…" if today_session
-        else "📡 Fetching last-close prices from NSE…"
+    nse_slot.markdown(
+        _spinner_html(
+            "📡 Fetching live NSE prices…" if market_open
+            else "📡 Fetching today's closing prices from NSE…" if today_session
+            else "📡 Fetching last-close prices from NSE…"
+        ),
+        unsafe_allow_html=True,
     )
     try:
         nse_px = _fetch_nse_live_prices_bulk(symbols)
@@ -1164,13 +1246,13 @@ def _do_eff_fetch(symbols: list, scan_name: str, ref_date=None,
     slot    = st.empty()
 
     if len(symbols) == 1:
-        slot.info(f"⏳ Fetching Eshwarana Fruit Forest data for **{symbols[0]}**…")
+        slot.markdown(_spinner_html(f"⏳ Fetching Eshwarana Fruit Forest data for <b>{symbols[0]}</b>…"), unsafe_allow_html=True)
         results = [fetcher.fetch(symbols[0], ref_date)]
         slot.empty()
     else:
         results_map: dict = {}
         done_count = [0]
-        slot.info(f"⏳ Fetching Eshwarana Fruit Forest data for {len(symbols)} symbols…  0 / {len(symbols)}")
+        slot.markdown(_spinner_html(f"⏳ Fetching Eshwarana Fruit Forest data for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
         with ThreadPoolExecutor(max_workers=8) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
@@ -1181,9 +1263,9 @@ def _do_eff_fetch(symbols: list, scan_name: str, ref_date=None,
                 except Exception as exc:
                     results_map[sym] = _EFFD(symbol=sym, error=str(exc))
                 done_count[0] += 1
-                slot.info(
-                    f"⏳ Fetching Eshwarana Fruit Forest data for {len(symbols)} symbols…  "
-                    f"{done_count[0]} / {len(symbols)}"
+                slot.markdown(
+                    _spinner_html(f"⏳ Fetching Eshwarana Fruit Forest data for {len(symbols)} symbols…  {done_count[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
                 )
 
         slot.empty()
@@ -1197,10 +1279,13 @@ def _do_eff_fetch(symbols: list, scan_name: str, ref_date=None,
     is_weekday    = date.today().weekday() < 5
     today_session = is_today and is_weekday
 
-    nse_slot.info(
-        "📡 Fetching live NSE prices…" if market_open
-        else "📡 Fetching today's closing prices from NSE…" if today_session
-        else "📡 Fetching last-close prices from NSE…"
+    nse_slot.markdown(
+        _spinner_html(
+            "📡 Fetching live NSE prices…" if market_open
+            else "📡 Fetching today's closing prices from NSE…" if today_session
+            else "📡 Fetching last-close prices from NSE…"
+        ),
+        unsafe_allow_html=True,
     )
     try:
         nse_px = _fetch_nse_live_prices_bulk(symbols)
@@ -1277,7 +1362,7 @@ def _do_etf_live_fetch() -> None:
     """Fetch the full NSE ETF live market data list and store in session state."""
     from src.scrapers.etf_fetcher import ETFFetcher
     slot = st.empty()
-    slot.info("⏳ Fetching NSE ETF live data…")
+    slot.markdown(_spinner_html("⏳ Fetching NSE ETF live data…"), unsafe_allow_html=True)
     # Clear before fetch so stale values never cause AttributeError if this fetch fails
     st.session_state.etf_live_summary = None
     try:
@@ -1302,13 +1387,13 @@ def _do_etf_ema_fetch(symbols: list, scan_name: str, ref_date=None,
     slot       = st.empty()
 
     if len(symbols) == 1:
-        slot.info(f"⏳ Calculating EMA for **{symbols[0]}**…")
+        slot.markdown(_spinner_html(f"⏳ Calculating EMA for <b>{symbols[0]}</b>…"), unsafe_allow_html=True)
         results = [fetcher.fetch_ema(symbols[0], ref_date, scheme_map.get(symbols[0], ""))]
         slot.empty()
     else:
         results_map: dict = {}
         done_count = [0]
-        slot.info(f"⏳ Calculating EMA for {len(symbols)} ETF(s)…  0 / {len(symbols)}")
+        slot.markdown(_spinner_html(f"⏳ Calculating EMA for {len(symbols)} ETF(s)…  0 / {len(symbols)}"), unsafe_allow_html=True)
         with ThreadPoolExecutor(max_workers=5) as ex:
             futures = {
                 ex.submit(fetcher.fetch_ema, sym, ref_date,
@@ -1322,9 +1407,9 @@ def _do_etf_ema_fetch(symbols: list, scan_name: str, ref_date=None,
                 except Exception as exc:
                     results_map[sym] = _EMAD(symbol=sym, error=str(exc))
                 done_count[0] += 1
-                slot.info(
-                    f"⏳ Calculating EMA for {len(symbols)} ETF(s)…  "
-                    f"{done_count[0]} / {len(symbols)}"
+                slot.markdown(
+                    _spinner_html(f"⏳ Calculating EMA for {len(symbols)} ETF(s)…  {done_count[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
                 )
         slot.empty()
         results = [results_map.get(s, _EMAD(symbol=s, error="Not fetched")) for s in symbols]
@@ -1406,10 +1491,12 @@ def render_login():
                             st.session_state.phone_input, otp_val.strip()
                         )
                         if ok:
+                            _tok = _create_session_token(user)
                             st.session_state.update(
                                 authenticated=True, user=user,
                                 otp_sent=False, dev_otp=None
                             )
+                            st.query_params["_s"] = _tok
                             # Clean up any duplicate scan history entries on login
                             db.deduplicate_scan_sessions(user["phone_number"])
                             st.rerun()
@@ -1668,8 +1755,12 @@ def render_sidebar():
             st.markdown("---")
 
         if st.button("🚪 Logout", use_container_width=True):
+            _tok = st.query_params.get("_s", "")
+            if _tok:
+                _revoke_session_token(_tok)
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
+            st.query_params.clear()
             st.rerun()
 
         st.markdown("---")
@@ -4979,6 +5070,20 @@ def _render_daily_dukaan_table(data: list) -> None:
       </div>
     </div>
   </div>
+  <div style="display:flex;gap:0.5rem;margin-top:0.75rem;padding-top:0.65rem;border-top:1px solid {mb_border}40;">
+    <a href="https://www.tradingview.com/chart/?symbol=NSE:{best.symbol}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;font-weight:600;
+              color:{mb_border};background:rgba(255,255,255,0.4);border:1px solid {mb_border};
+              border-radius:6px;padding:0.25rem 0.7rem;text-decoration:none;">
+      📈 TradingView
+    </a>
+    <a href="https://www.nseindia.com/get-quotes/equity?symbol={best.symbol}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;font-weight:600;
+              color:{mb_border};background:rgba(255,255,255,0.4);border:1px solid {mb_border};
+              border-radius:6px;padding:0.25rem 0.7rem;text-decoration:none;">
+      🏛️ NSE
+    </a>
+  </div>
 </div>
 """,
                 unsafe_allow_html=True,
@@ -5055,23 +5160,34 @@ def _render_daily_dukaan_table(data: list) -> None:
 
                 st.markdown(f"""
                 <div style="background:{card_bg};border:1px solid {border_c};border-radius:12px;
-                            padding:0.9rem 1.2rem;margin-bottom:0.5rem;
-                            display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                  <div style="display:flex;align-items:center;gap:0.8rem;">
-                    <span style="font-size:1.5rem;">{medal}</span>
-                    <div>
-                      <div style="font-size:1rem;font-weight:700;color:{val_c};">{d.symbol}</div>
-                      <div style="font-size:0.8rem;color:{label_c};">{d.company_name or d.symbol}</div>
+                            padding:0.9rem 1.2rem;margin-bottom:0.5rem;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                    <div style="display:flex;align-items:center;gap:0.8rem;">
+                      <span style="font-size:1.5rem;">{medal}</span>
+                      <div>
+                        <div style="font-size:1rem;font-weight:700;color:{val_c};">{d.symbol}</div>
+                        <div style="font-size:0.8rem;color:{label_c};">{d.company_name or d.symbol}</div>
+                        <div style="display:flex;gap:0.35rem;margin-top:0.25rem;">
+                          <a href="https://www.tradingview.com/chart/?symbol=NSE:{d.symbol}" target="_blank"
+                             style="font-size:0.72rem;font-weight:600;color:#2563eb;text-decoration:none;
+                                    background:rgba(37,99,235,0.08);border:1px solid #bfdbfe;
+                                    border-radius:4px;padding:0.1rem 0.4rem;">📈 TradingView</a>
+                          <a href="https://www.nseindia.com/get-quotes/equity?symbol={d.symbol}" target="_blank"
+                             style="font-size:0.72rem;font-weight:600;color:#2563eb;text-decoration:none;
+                                    background:rgba(37,99,235,0.08);border:1px solid #bfdbfe;
+                                    border-radius:4px;padding:0.1rem 0.4rem;">🏛️ NSE</a>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div style="text-align:right;">
-                    <div style="font-size:1.3rem;font-weight:700;color:{pct_color};">
-                      {pct_sign}{pct:.2f}%
-                    </div>
-                    <div style="font-size:0.8rem;color:{label_c};">
-                      ₹{d.current_price:,.2f} &nbsp;·&nbsp; 20 DMA ₹{d.dma20:,.2f}
-                      &nbsp;·&nbsp; Diff {diff_sign}{diff:.2f}
-                      &nbsp;·&nbsp; {d.nse_live_time if d.price_source == "NSE Live" else (d.ref_date or "—")}
+                    <div style="text-align:right;">
+                      <div style="font-size:1.3rem;font-weight:700;color:{pct_color};">
+                        {pct_sign}{pct:.2f}%
+                      </div>
+                      <div style="font-size:0.8rem;color:{label_c};">
+                        ₹{d.current_price:,.2f} &nbsp;·&nbsp; 20 DMA ₹{d.dma20:,.2f}
+                        &nbsp;·&nbsp; Diff {diff_sign}{diff:.2f}
+                        &nbsp;·&nbsp; {d.nse_live_time if d.price_source == "NSE Live" else (d.ref_date or "—")}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -5392,6 +5508,20 @@ def _render_ll_etf_table(data: list) -> None:
         &nbsp;·&nbsp; Diff {diff_str} &nbsp;·&nbsp; {ts_str}
       </div>
     </div>
+  </div>
+  <div style="display:flex;gap:0.5rem;margin-top:0.75rem;padding-top:0.65rem;border-top:1px solid {brd}40;">
+    <a href="https://www.tradingview.com/chart/?symbol=NSE:{d.symbol}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;font-weight:600;
+              color:{brd};background:rgba(255,255,255,0.4);border:1px solid {brd};
+              border-radius:6px;padding:0.25rem 0.7rem;text-decoration:none;">
+      📈 TradingView
+    </a>
+    <a href="https://www.nseindia.com/get-quotes/equity?symbol={d.symbol}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;font-weight:600;
+              color:{brd};background:rgba(255,255,255,0.4);border:1px solid {brd};
+              border-radius:6px;padding:0.25rem 0.7rem;text-decoration:none;">
+      🏛️ NSE
+    </a>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -5773,6 +5903,20 @@ def _render_eff_table(data: list) -> None:
         &nbsp;·&nbsp; Diff {diff_str} &nbsp;·&nbsp; {ts_str}
       </div>
     </div>
+  </div>
+  <div style="display:flex;gap:0.5rem;margin-top:0.75rem;padding-top:0.65rem;border-top:1px solid {brd}40;">
+    <a href="https://www.tradingview.com/chart/?symbol=NSE:{d.symbol}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;font-weight:600;
+              color:{brd};background:rgba(255,255,255,0.4);border:1px solid {brd};
+              border-radius:6px;padding:0.25rem 0.7rem;text-decoration:none;">
+      📈 TradingView
+    </a>
+    <a href="https://www.nseindia.com/get-quotes/equity?symbol={d.symbol}" target="_blank"
+       style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.78rem;font-weight:600;
+              color:{brd};background:rgba(255,255,255,0.4);border:1px solid {brd};
+              border-radius:6px;padding:0.25rem 0.7rem;text-decoration:none;">
+      🏛️ NSE
+    </a>
   </div>
 </div>
 """, unsafe_allow_html=True)
