@@ -5713,7 +5713,7 @@ def _render_holdings_tab(asset_type: str) -> None:
         st.info("No holdings added yet. Use the form above to add your first BUY entry.")
         return
 
-    # ── Open Positions with virtual P&L and direct Sell button ───────────────
+    # ── Open Positions — one card per symbol ─────────────────────────────────
     open_buy_rows = [h for h in holdings
                      if h.get("transaction_type", "BUY") == "BUY"
                      and (h.get("remaining_qty") or 0) > 0.0001
@@ -5722,50 +5722,67 @@ def _render_holdings_tab(asset_type: str) -> None:
     if open_buy_rows:
         st.markdown("### 📂 Open Positions")
 
+        # Group by symbol
+        from collections import defaultdict as _ddop
+        _op_groups: dict = _ddop(list)
+        for _h in open_buy_rows:
+            _op_groups[_h["symbol"]].append(_h)
+
         _g = "#dcfce7"; _r = "#fee2e2"; _gc = "#15803d"; _rc = "#b91c1c"
         if dark:
             _g = "rgba(20,83,45,0.4)"; _r = "rgba(69,10,10,0.4)"
             _gc = "#4ade80";           _rc = "#f87171"
 
-        for h in open_buy_rows:
-            pnl_amt, pnl_pct, days, _, eff_price = _holding_pnl(h, live_prices)
-            remaining = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
-            invested  = h["buy_price"] * remaining
+        for _sym, _lots in _op_groups.items():
+            # Aggregate across all open lots for this symbol
+            _lots_sorted  = sorted(_lots, key=lambda x: x.get("buy_date", ""))
+            _total_rem    = sum(float(x.get("remaining_qty") or x.get("buy_qty") or 0) for x in _lots_sorted)
+            _total_cost   = sum(float(x["buy_price"]) * float(x.get("remaining_qty") or x.get("buy_qty") or 0) for x in _lots_sorted)
+            _avg_bp       = _total_cost / _total_rem if _total_rem > 0 else 0.0
+            _live         = live_prices.get(_sym)
+            _company      = next((x.get("company_name") for x in _lots_sorted if x.get("company_name")), _sym)
+            _fifo_id      = _lots_sorted[0]["id"]   # oldest lot used as sell source (FIFO)
 
-            if pnl_amt is not None:
-                bg_col = _g if pnl_amt >= 0 else _r
-                fc_col = _gc if pnl_amt >= 0 else _rc
-                pnl_label = f"₹{pnl_amt:+,.2f} ({pnl_pct:+.2f}%)"
+            if _live and _total_rem > 0:
+                _cur_val_op = _live * _total_rem
+                _pnl_op     = _cur_val_op - _total_cost
+                _pnl_pct_op = (_pnl_op / _total_cost * 100) if _total_cost else 0
+                bg_col = _g if _pnl_op >= 0 else _r
+                fc_col = _gc if _pnl_op >= 0 else _rc
+                pnl_label    = f"₹{_pnl_op:+,.2f} ({_pnl_pct_op:+.2f}%)"
+                cur_price_str = f"₹{_live:,.2f}"
+                cur_val_str   = f"₹{_cur_val_op:,.2f}"
             else:
-                bg_col = "rgba(100,116,139,0.1)"
-                fc_col = "#64748b"
+                bg_col = "rgba(100,116,139,0.1)"; fc_col = "#64748b"
                 pnl_label = "⏳ Refresh for P&L"
+                cur_price_str = "—"; cur_val_str = "—"
 
-            cur_price_str = f"₹{eff_price:,.2f}" if eff_price else "—"
+            lot_note = f"{len(_lots_sorted)} lot{'s' if len(_lots_sorted) > 1 else ''}"
 
             oc1, oc2, oc3, oc4, oc5, oc6, oc7 = st.columns([2, 2, 1, 2, 2, 2, 1])
             with oc1:
                 st.markdown(
-                    f"<div style='font-weight:700;font-size:1rem;'>{h['symbol']}</div>"
-                    f"<div style='font-size:0.75rem;color:#64748b;'>{h['company_name'] or ''}</div>",
+                    f"<div style='font-weight:700;font-size:1rem;'>{_sym}</div>"
+                    f"<div style='font-size:0.75rem;color:#64748b;'>{_company}</div>"
+                    f"<div style='font-size:0.72rem;color:#94a3b8;'>{lot_note}</div>",
                     unsafe_allow_html=True,
                 )
             with oc2:
                 st.markdown(
-                    f"<div style='font-size:0.82rem;color:#64748b;'>Buy Price</div>"
-                    f"<div style='font-weight:600;'>₹{h['buy_price']:,.2f}</div>",
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Avg Buy Price</div>"
+                    f"<div style='font-weight:600;'>₹{_avg_bp:,.2f}</div>",
                     unsafe_allow_html=True,
                 )
             with oc3:
                 st.markdown(
                     f"<div style='font-size:0.82rem;color:#64748b;'>Remaining</div>"
-                    f"<div style='font-weight:600;'>{remaining:,.4g}</div>",
+                    f"<div style='font-weight:600;'>{_total_rem:,.4g}</div>",
                     unsafe_allow_html=True,
                 )
             with oc4:
                 st.markdown(
                     f"<div style='font-size:0.82rem;color:#64748b;'>Invested (₹)</div>"
-                    f"<div style='font-weight:600;'>₹{invested:,.2f}</div>",
+                    f"<div style='font-weight:600;'>₹{_total_cost:,.2f}</div>",
                     unsafe_allow_html=True,
                 )
             with oc5:
@@ -5776,15 +5793,15 @@ def _render_holdings_tab(asset_type: str) -> None:
                 )
             with oc6:
                 st.markdown(
-                    f"<div style='font-size:0.82rem;color:#64748b;'>Virtual P&L &nbsp;({days}d)</div>"
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Virtual P&L</div>"
                     f"<div style='font-weight:700;color:{fc_col};background:{bg_col};"
                     f"padding:2px 6px;border-radius:4px;display:inline-block;'>{pnl_label}</div>",
                     unsafe_allow_html=True,
                 )
             with oc7:
-                if st.button("📤 Sell", key=f"op_sell_{h['id']}_{asset_type}",
+                if st.button("📤 Sell", key=f"op_sell_{_sym}_{asset_type}",
                              width='stretch'):
-                    st.session_state["holdings_sell_buy_id"] = h["id"]
+                    st.session_state["holdings_sell_buy_id"] = _fifo_id
                     st.session_state["holdings_edit_id"]     = None
                     st.rerun()
 
