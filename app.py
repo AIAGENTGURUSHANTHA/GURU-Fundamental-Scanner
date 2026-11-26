@@ -5716,6 +5716,19 @@ def _render_holdings_tab(asset_type: str) -> None:
 
     # ── Main table ────────────────────────────────────────────────────────────
     st.markdown("### 📋 All Transactions")
+
+    # Per-symbol aggregations for Base Investment, Avg Price, Net Qty
+    from collections import defaultdict as _dd
+    _sym_stats: dict = _dd(lambda: {"buy_cost": 0.0, "buy_qty": 0.0, "sell_qty": 0.0})
+    for _h in holdings:
+        _sym = _h["symbol"]
+        _tt  = _h.get("transaction_type", "BUY")
+        if _tt == "BUY":
+            _sym_stats[_sym]["buy_cost"] += float(_h.get("buy_price") or 0) * float(_h.get("buy_qty") or 0)
+            _sym_stats[_sym]["buy_qty"]  += float(_h.get("buy_qty") or 0)
+        else:
+            _sym_stats[_sym]["sell_qty"] += float(_h.get("sell_qty") or _h.get("buy_qty") or 0)
+
     rows = []
     for h in holdings:
         pnl_amt, pnl_pct, days, is_open, eff_price = _holding_pnl(h, live_prices)
@@ -5723,6 +5736,11 @@ def _render_holdings_tab(asset_type: str) -> None:
         remaining = h.get("remaining_qty")
         if t_type == "BUY" and remaining is None:
             remaining = h.get("buy_qty")
+
+        _ss       = _sym_stats[h["symbol"]]
+        _base_inv = _ss["buy_cost"]
+        _avg_px   = _ss["buy_cost"] / _ss["buy_qty"] if _ss["buy_qty"] > 0 else 0.0
+        _net_qty  = _ss["buy_qty"] - _ss["sell_qty"]
 
         rows.append({
             "ID":            h["id"],
@@ -5733,6 +5751,9 @@ def _render_holdings_tab(asset_type: str) -> None:
             "Buy Price (₹)": h["buy_price"],
             "Qty":           h["buy_qty"],
             "Remaining":     remaining if t_type == "BUY" else None,
+            "Base Inv (₹)":  _base_inv,
+            "Avg Price (₹)": _avg_px,
+            "Net Qty":       _net_qty,
             "Current Price":  eff_price,
             "P&L (₹)":       pnl_amt,
             "P&L %":         pnl_pct,
@@ -5755,6 +5776,12 @@ def _render_holdings_tab(asset_type: str) -> None:
         "Buy Price (₹)":  num_col("Buy Price (₹)",    format="₹%.2f"),
         "Qty":            num_col("Qty",               format="%.4f"),
         "Remaining":      num_col("Remaining",         format="%.4f"),
+        "Base Inv (₹)":   num_col("Base Inv (₹)",     format="₹%,.2f",
+                                   help="Total capital invested in this symbol via all BUY transactions. Never reduced by sells."),
+        "Avg Price (₹)":  num_col("Avg Price (₹)",    format="₹%.2f",
+                                   help="Weighted average buy price = Total buy cost ÷ Total shares bought."),
+        "Net Qty":        num_col("Net Qty",           format="%.4f",
+                                   help="Current holding = Total shares bought − Total shares sold."),
         "Current Price":  num_col("Current Price",   format="₹%.2f"),
         "P&L (₹)":        num_col("P&L (₹)",          format="%+,.2f"),
         "P&L %":          num_col("P&L %",             format="%+.2f%%"),
