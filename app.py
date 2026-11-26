@@ -1659,10 +1659,25 @@ def render_sidebar():
         if st.button("💼 My Holdings", use_container_width=True, type=holdings_type, key="nav_holdings"):
             st.session_state.section = "my_holdings"
             st.rerun()
-        pkj_type = "primary" if active == "paiso_ka_jungle" else "secondary"
-        if st.button("🌳 Paiso Ka Jungle", use_container_width=True, type=pkj_type, key="nav_pkj"):
-            st.session_state.section = "paiso_ka_jungle"
-            st.rerun()
+        _pkj_active = active == "paiso_ka_jungle"
+        _pkj_bg  = "#1f4e79" if _pkj_active else "#f0f2f6"
+        _pkj_clr = "#ffffff" if _pkj_active else "#262730"
+        _pkj_bdr = "2px solid #1f4e79" if _pkj_active else "1px solid #d0d2d6"
+        st.markdown(
+            f"""<button onclick="window.location.href='?_p=paiso_ka_jungle'" style="
+                width:100%;background:{_pkj_bg};color:{_pkj_clr};
+                border:{_pkj_bdr};border-radius:0.5rem;padding:0;
+                cursor:pointer;overflow:hidden;font-family:inherit;
+                margin-bottom:0.25rem;">
+              <img src="/app/static/pkj_tree.png" style="
+                width:100%;height:76px;object-fit:cover;
+                object-position:50% 30%;display:block;" />
+              <div style="padding:0.4rem 0.75rem;font-weight:600;font-size:0.875rem;">
+                🌳 Paiso Ka Jungle
+              </div>
+            </button>""",
+            unsafe_allow_html=True,
+        )
 
         st.markdown("---")
 
