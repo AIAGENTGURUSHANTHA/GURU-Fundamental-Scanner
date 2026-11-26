@@ -5824,9 +5824,8 @@ def _render_holdings_tab(asset_type: str) -> None:
         _ss       = _sym_stats[h["symbol"]]
         _base_inv    = _ss["buy_cost"]
         _net_qty     = _ss["buy_qty"] - _ss["sell_qty"]
-        _avg_px      = _base_inv / _net_qty if _net_qty > 0 else 0.0
-        _cur_val     = round(float(eff_price or 0) * _net_qty, 2) if eff_price else None
-        _total_profit = round(_cur_val - _base_inv, 2) if _cur_val is not None else None
+        _avg_px  = _base_inv / _net_qty if _net_qty > 0 else 0.0
+        _cur_val = round(float(eff_price or 0) * _net_qty, 2) if eff_price else None
 
         rows.append({
             "ID":              h["id"],
@@ -5843,9 +5842,9 @@ def _render_holdings_tab(asset_type: str) -> None:
             "Net Qty":         _net_qty,
             "Current Price":   eff_price,
             "Cur Value (₹)":   _cur_val,
-            "Total Cur Profit (₹)": _total_profit,
-            "P&L (₹)":         pnl_amt,
-            "P&L %":           pnl_pct,
+            "P&L (₹)":         pnl_amt   if t_type == "BUY"  else None,
+            "P&L %":           pnl_pct   if t_type == "BUY"  else None,
+            "Booked Profit (₹)": pnl_amt if t_type == "SELL" else None,
             "Days":            days,
             "Sell Date":       h.get("sell_date") or "—",
             "Sell Price (₹)":  h.get("sell_price"),
@@ -5876,10 +5875,10 @@ def _render_holdings_tab(asset_type: str) -> None:
         "Current Price":   num_col("Current Price",    format="₹%.2f"),
         "Cur Value (₹)":   num_col("Total Current Value", format="₹%,.2f",
                                     help="Total Current Value = Current Price × Net Qty."),
-        "Total Cur Profit (₹)": num_col("Total Current Profit",    format="%+,.2f",
-                                    help="Total Profit = Total Current Value − Base Investment."),
         "P&L (₹)":         num_col("P&L (₹)",          format="%+,.2f"),
         "P&L %":          num_col("P&L %",             format="%+.2f%%"),
+        "Booked Profit (₹)": num_col("Booked Profit",  format="%+,.2f",
+                                    help="Realized profit from this SELL transaction = (Sell Price − Buy Price) × Sell Qty."),
         "Days":           num_col("Days",              format="%d d"),
         "Sell Date":      txt_col("Sell Date",         width="small"),
         "Sell Price (₹)": num_col("Sell Price (₹)",   format="₹%.2f"),
@@ -5902,8 +5901,8 @@ def _render_holdings_tab(asset_type: str) -> None:
         styled = styled.map(_style_pnl_abs, subset=["P&L (₹)"])
     if "P&L %" in df_disp.columns:
         styled = styled.map(_style_pnl_abs, subset=["P&L %"])
-    if "Total Cur Profit (₹)" in df_disp.columns:
-        styled = styled.map(_style_pnl_abs, subset=["Total Cur Profit (₹)"])
+    if "Booked Profit (₹)" in df_disp.columns:
+        styled = styled.map(_style_pnl_abs, subset=["Booked Profit (₹)"])
 
     evt = st.dataframe(
         styled, hide_index=True, width='stretch',
