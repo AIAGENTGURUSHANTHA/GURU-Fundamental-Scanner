@@ -5444,7 +5444,7 @@ def _render_holdings_tab(asset_type: str) -> None:
             else:
                 with st.spinner(f"🔍 Looking up company name for {pending_sym}…"):
                     _name = ""
-                    # Try NSE via nsepython first (most accurate for Indian stocks)
+                    # Try NSE via nsepython first (most accurate for Indian equity stocks)
                     try:
                         import logging as _lg; _lg.disable(_lg.WARNING)
                         from nsepython import nse_eq as _nse_eq
@@ -5454,12 +5454,15 @@ def _render_holdings_tab(asset_type: str) -> None:
                                  or _nse_data.get("metadata", {}).get("companyName") or "")
                     except Exception:
                         pass
-                    # Fall back to yfinance
+                    # Fall back to yfinance — try NSE:{sym}, then {sym}.NS
                     if not _name:
                         try:
                             import yfinance as _yf
-                            _info = _yf.Ticker(f"{pending_sym}.NS").info or {}
-                            _name = _info.get("longName") or _info.get("shortName") or ""
+                            for _ticker in (f"NSE:{pending_sym}", f"{pending_sym}.NS"):
+                                _info = _yf.Ticker(_ticker).info or {}
+                                _name = _info.get("longName") or _info.get("shortName") or ""
+                                if _name:
+                                    break
                         except Exception:
                             pass
                     st.session_state[f"_yf_name_{pending_sym}"] = _name
