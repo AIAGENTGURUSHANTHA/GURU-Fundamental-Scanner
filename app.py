@@ -2510,27 +2510,27 @@ def _render_table(stock_list: list):
             st.link_button(
                 "📈 NSE Chart",
                 f"https://www.nseindia.com/get-quotes/equity?symbol={nse_code_sel}",
-                use_container_width=True, type="primary",
+                width='stretch', type="primary",
             )
         with col_btn2:
             st.link_button(
                 "📊 TradingView",
                 f"https://in.tradingview.com/chart/?symbol=NSE%3A{nse_code_sel}&interval=D",
-                use_container_width=True,
+                width='stretch',
             )
         with col_btn3:
             st.link_button(
                 "🔍 Screener.in",
                 f"https://www.screener.in/company/{selected_sym}/",
-                use_container_width=True,
+                width='stretch',
             )
     else:
         with col_btn1:
-            st.button("📈 NSE Chart", disabled=True, use_container_width=True, key="nse_dis")
+            st.button("📈 NSE Chart", disabled=True, width='stretch', key="nse_dis")
         with col_btn2:
-            st.button("📊 TradingView", disabled=True, use_container_width=True, key="tv_dis")
+            st.button("📊 TradingView", disabled=True, width='stretch', key="tv_dis")
         with col_btn3:
-            st.button("🔍 Screener.in", disabled=True, use_container_width=True, key="scr_dis")
+            st.button("🔍 Screener.in", disabled=True, width='stretch', key="scr_dis")
         st.caption("⬆️ Click a row in the table above to enable navigation buttons")
 
 
@@ -2644,7 +2644,7 @@ def _render_etf_ema_table(ema_list: list) -> None:
                 unsafe_allow_html=True,
             )
     with h3:
-        if st.button("🔄 Refresh", key="etf_ema_refresh", use_container_width=True, type="primary"):
+        if st.button("🔄 Refresh", key="etf_ema_refresh", width='stretch', type="primary"):
             st.session_state.etf_ema_do_refresh = True
             st.rerun()
     with h4:
@@ -2719,22 +2719,22 @@ def _render_etf_ema_table(ema_list: list) -> None:
         with col1:
             st.link_button("📈 NSE Chart",
                            f"https://www.nseindia.com/get-quotes/equity?symbol={sym}",
-                           use_container_width=True, type="primary")
+                           width='stretch', type="primary")
         with col2:
             st.link_button("📊 TradingView",
                            f"https://in.tradingview.com/chart/?symbol=NSE%3A{sym}&interval=D",
-                           use_container_width=True)
+                           width='stretch')
         with col3:
             st.link_button("🔍 Screener.in",
                            f"https://www.screener.in/company/{sym}/",
-                           use_container_width=True)
+                           width='stretch')
     else:
         with col1:
-            st.button("📈 NSE Chart",    disabled=True, use_container_width=True, key="etf_nse_dis")
+            st.button("📈 NSE Chart",    disabled=True, width='stretch', key="etf_nse_dis")
         with col2:
-            st.button("📊 TradingView", disabled=True, use_container_width=True, key="etf_tv_dis")
+            st.button("📊 TradingView", disabled=True, width='stretch', key="etf_tv_dis")
         with col3:
-            st.button("🔍 Screener.in", disabled=True, use_container_width=True, key="etf_sc_dis")
+            st.button("🔍 Screener.in", disabled=True, width='stretch', key="etf_sc_dis")
         st.caption("⬆️ Click a row in the EMA table above to enable navigation buttons")
 
 
@@ -2753,7 +2753,7 @@ def _render_etf_analysis():
         c_btn, c_info = st.columns([2, 5])
         with c_btn:
             if st.button("🔄 Fetch / Refresh NSE ETF Data", type="primary",
-                         use_container_width=True, key="etf_live_fetch_btn"):
+                         width='stretch', key="etf_live_fetch_btn"):
                 _do_etf_live_fetch()
                 st.rerun()
         with c_info:
@@ -2798,7 +2798,7 @@ def _render_etf_analysis():
                 with sc1:
                     if st.button(
                         f"📈 Run EMA on {len(selected_syms)} selected ETF(s)",
-                        type="primary", use_container_width=True, key="etf_run_sel_ema",
+                        type="primary", width='stretch', key="etf_run_sel_ema",
                     ):
                         scheme_map = {d.symbol: d.assets for d in live_data}
                         today = _date.today()
@@ -2874,7 +2874,7 @@ def _render_etf_analysis():
         )
         c1, c2 = st.columns([1, 5])
         with c1:
-            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key="etf_scan_m")
+            scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key="etf_scan_m")
         with c2:
             st.caption("Use NSE ETF symbols. Data fetched from Yahoo Finance (NSE: prefix applied internally).")
         if scan_btn and txt.strip():
@@ -2888,7 +2888,7 @@ def _render_etf_analysis():
         )
         c1, c2, c3 = st.columns([1, 1, 4])
         with c1:
-            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key="etf_scan_f")
+            scan_f = st.button("🔍 Scan File", type="primary", width='stretch', key="etf_scan_f")
         with c2:
             sample = pd.DataFrame({"symbol": ["NIFTYBEES", "BANKBEES", "GOLDBEES", "JUNIORBEES", "ITBEES"]})
             st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
@@ -2915,7 +2915,7 @@ def _render_etf_analysis():
             c1, c2 = st.columns([1, 5])
             with c1:
                 run_live = st.button("🔍 Run EMA", type="primary",
-                                     use_container_width=True, key="etf_scan_live")
+                                     width='stretch', key="etf_scan_live")
             with c2:
                 if st.button("Select All", key="etf_sel_all"):
                     st.session_state["_etf_sel_all"] = True
@@ -3042,7 +3042,7 @@ def _render_dma_analysis():
         )
         c1, c2 = st.columns([1, 5])
         with c1:
-            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key="dma_scan_m")
+            scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key="dma_scan_m")
         with c2:
             st.caption("Use NSE symbols. Data fetched from Yahoo Finance (NSE: prefix applied internally).")
         if scan_btn and txt.strip():
@@ -3057,7 +3057,7 @@ def _render_dma_analysis():
         )
         c1, c2, c3 = st.columns([1, 1, 4])
         with c1:
-            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key="dma_scan_f")
+            scan_f = st.button("🔍 Scan File", type="primary", width='stretch', key="dma_scan_f")
         with c2:
             sample = pd.DataFrame({"symbol": ["RELIANCE", "INFY", "TCS", "HDFCBANK", "WIPRO"]})
             st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
@@ -3242,13 +3242,13 @@ def _render_dma_card(d):
     st.markdown("**🔗 Open in:**")
     bc1, bc2, bc3, bc4, bc5 = st.columns(5)
     with bc1:
-        st.link_button("📈 NSE Chart", nse_url, use_container_width=True, type="primary")
+        st.link_button("📈 NSE Chart", nse_url, width='stretch', type="primary")
     with bc2:
-        st.link_button("📊 TradingView", tv_url, use_container_width=True)
+        st.link_button("📊 TradingView", tv_url, width='stretch')
     with bc3:
-        st.link_button("🔍 Screener.in", sc_url, use_container_width=True)
+        st.link_button("🔍 Screener.in", sc_url, width='stretch')
     with bc4:
-        if st.button("🔄 Refresh DMA", use_container_width=True, type="primary",
+        if st.button("🔄 Refresh DMA", width='stretch', type="primary",
                      help="Re-fetch latest data from NSE",
                      key="dma_refresh_card"):
             st.session_state.dma_do_refresh = True
@@ -3314,7 +3314,7 @@ def _render_dma_table(dma_list: list):
                 unsafe_allow_html=True,
             )
     with h3:
-        if st.button("🔄 Refresh", key="dma_refresh_table", use_container_width=True, type="primary",
+        if st.button("🔄 Refresh", key="dma_refresh_table", width='stretch', type="primary",
                      help="Re-fetch latest data from NSE"):
             st.session_state.dma_do_refresh = True
             st.rerun()
@@ -3396,27 +3396,27 @@ def _render_dma_table(dma_list: list):
             st.link_button(
                 "📈 NSE Chart",
                 f"https://www.nseindia.com/get-quotes/equity?symbol={selected_sym}",
-                use_container_width=True, type="primary",
+                width='stretch', type="primary",
             )
         with col2:
             st.link_button(
                 "📊 TradingView",
                 f"https://in.tradingview.com/chart/?symbol=NSE%3A{selected_sym}&interval=D",
-                use_container_width=True,
+                width='stretch',
             )
         with col3:
             st.link_button(
                 "🔍 Screener.in",
                 f"https://www.screener.in/company/{selected_sym}/",
-                use_container_width=True,
+                width='stretch',
             )
     else:
         with col1:
-            st.button("📈 NSE Chart",    disabled=True, use_container_width=True, key="dma_nse_dis")
+            st.button("📈 NSE Chart",    disabled=True, width='stretch', key="dma_nse_dis")
         with col2:
-            st.button("📊 TradingView", disabled=True, use_container_width=True, key="dma_tv_dis")
+            st.button("📊 TradingView", disabled=True, width='stretch', key="dma_tv_dis")
         with col3:
-            st.button("🔍 Screener.in", disabled=True, use_container_width=True, key="dma_sc_dis")
+            st.button("🔍 Screener.in", disabled=True, width='stretch', key="dma_sc_dis")
         st.caption("⬆️ Click a row in the table above to enable navigation buttons")
 
 
@@ -3462,7 +3462,7 @@ def _render_ema_analysis():
         )
         c1, c2 = st.columns([1, 5])
         with c1:
-            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key="ema_scan_m")
+            scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key="ema_scan_m")
         with c2:
             st.caption("Use NSE symbols. EMA data fetched from Yahoo Finance.")
         if scan_btn and txt.strip():
@@ -3477,7 +3477,7 @@ def _render_ema_analysis():
         )
         c1, c2, c3 = st.columns([1, 1, 4])
         with c1:
-            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key="ema_scan_f")
+            scan_f = st.button("🔍 Scan File", type="primary", width='stretch', key="ema_scan_f")
         with c2:
             sample = pd.DataFrame({"symbol": ["RELIANCE", "INFY", "TCS", "HDFCBANK", "WIPRO"]})
             st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
@@ -3645,17 +3645,17 @@ def _render_ema_card(d):
     with bc1:
         st.link_button("📈 NSE Chart",
                        f"https://www.nseindia.com/get-quotes/equity?symbol={nse_sym}",
-                       use_container_width=True, type="primary")
+                       width='stretch', type="primary")
     with bc2:
         st.link_button("📊 TradingView",
                        f"https://in.tradingview.com/chart/?symbol=NSE%3A{nse_sym}&interval=D",
-                       use_container_width=True)
+                       width='stretch')
     with bc3:
         st.link_button("🔍 Screener.in",
                        f"https://www.screener.in/company/{nse_sym}/",
-                       use_container_width=True)
+                       width='stretch')
     with bc4:
-        if st.button("🔄 Refresh EMA", use_container_width=True, type="primary",
+        if st.button("🔄 Refresh EMA", width='stretch', type="primary",
                      key="ema_refresh_card"):
             st.session_state.ema_do_refresh = True
             st.rerun()
@@ -3714,7 +3714,7 @@ def _render_ema_table(ema_list: list):
                 unsafe_allow_html=True,
             )
     with h3:
-        if st.button("🔄 Refresh", key="ema_refresh_table", use_container_width=True, type="primary"):
+        if st.button("🔄 Refresh", key="ema_refresh_table", width='stretch', type="primary"):
             st.session_state.ema_do_refresh = True
             st.rerun()
     with h4:
@@ -3792,27 +3792,27 @@ def _render_ema_table(ema_list: list):
             st.link_button(
                 "📈 NSE Chart",
                 f"https://www.nseindia.com/get-quotes/equity?symbol={selected_sym}",
-                use_container_width=True, type="primary",
+                width='stretch', type="primary",
             )
         with col2:
             st.link_button(
                 "📊 TradingView",
                 f"https://in.tradingview.com/chart/?symbol=NSE%3A{selected_sym}&interval=D",
-                use_container_width=True,
+                width='stretch',
             )
         with col3:
             st.link_button(
                 "🔍 Screener.in",
                 f"https://www.screener.in/company/{selected_sym}/",
-                use_container_width=True,
+                width='stretch',
             )
     else:
         with col1:
-            st.button("📈 NSE Chart",    disabled=True, use_container_width=True, key="ema_nse_dis")
+            st.button("📈 NSE Chart",    disabled=True, width='stretch', key="ema_nse_dis")
         with col2:
-            st.button("📊 TradingView", disabled=True, use_container_width=True, key="ema_tv_dis")
+            st.button("📊 TradingView", disabled=True, width='stretch', key="ema_tv_dis")
         with col3:
-            st.button("🔍 Screener.in", disabled=True, use_container_width=True, key="ema_sc_dis")
+            st.button("🔍 Screener.in", disabled=True, width='stretch', key="ema_sc_dis")
         st.caption("⬆️ Click a row in the table above to enable navigation buttons")
 
 
@@ -3867,7 +3867,7 @@ def _render_guru_buy_analysis():
         )
         c1, c2 = st.columns([1, 5])
         with c1:
-            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key="guru_scan_m")
+            scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key="guru_scan_m")
         with c2:
             st.caption("Rainbow EMA(2)×7 indicator — based on Pine Script logic.")
         if scan_btn and txt.strip():
@@ -3880,7 +3880,7 @@ def _render_guru_buy_analysis():
                                label_visibility="collapsed", key="guru_file_uploader")
         c1, c2, c3 = st.columns([1, 1, 4])
         with c1:
-            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key="guru_scan_f")
+            scan_f = st.button("🔍 Scan File", type="primary", width='stretch', key="guru_scan_f")
         with c2:
             sample = pd.DataFrame({"symbol": ["RELIANCE", "INFY", "TCS", "HDFCBANK", "WIPRO"]})
             st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
@@ -4034,17 +4034,17 @@ def _render_guru_buy_card(d):
     with bc1:
         st.link_button("📈 NSE Chart",
                        f"https://www.nseindia.com/get-quotes/equity?symbol={nse_sym}",
-                       use_container_width=True, type="primary")
+                       width='stretch', type="primary")
     with bc2:
         st.link_button("📊 TradingView",
                        f"https://in.tradingview.com/chart/?symbol=NSE%3A{nse_sym}&interval=D",
-                       use_container_width=True)
+                       width='stretch')
     with bc3:
         st.link_button("🔍 Screener.in",
                        f"https://www.screener.in/company/{nse_sym}/",
-                       use_container_width=True)
+                       width='stretch')
     with bc4:
-        if st.button("🔄 Refresh", use_container_width=True, type="primary", key="guru_refresh_card"):
+        if st.button("🔄 Refresh", width='stretch', type="primary", key="guru_refresh_card"):
             st.session_state.guru_do_refresh = True
             st.rerun()
     with bc5:
@@ -4139,29 +4139,29 @@ def _render_guru_zone_table(items: list, zone_key: str):
 
     col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
     with col4:
-        if st.button("🔄 Refresh", key=f"{zone_key}_refresh", use_container_width=True, type="primary"):
+        if st.button("🔄 Refresh", key=f"{zone_key}_refresh", width='stretch', type="primary"):
             st.session_state.guru_do_refresh = True
             st.rerun()
     if sel_sym:
         with col1:
             st.link_button("📈 NSE Chart",
                            f"https://www.nseindia.com/get-quotes/equity?symbol={sel_sym}",
-                           use_container_width=True, type="primary")
+                           width='stretch', type="primary")
         with col2:
             st.link_button("📊 TradingView",
                            f"https://in.tradingview.com/chart/?symbol=NSE%3A{sel_sym}&interval=D",
-                           use_container_width=True)
+                           width='stretch')
         with col3:
             st.link_button("🔍 Screener.in",
                            f"https://www.screener.in/company/{sel_sym}/",
-                           use_container_width=True)
+                           width='stretch')
     else:
         with col1:
-            st.button("📈 NSE Chart",    disabled=True, use_container_width=True, key=f"{zone_key}_nse_dis")
+            st.button("📈 NSE Chart",    disabled=True, width='stretch', key=f"{zone_key}_nse_dis")
         with col2:
-            st.button("📊 TradingView", disabled=True, use_container_width=True, key=f"{zone_key}_tv_dis")
+            st.button("📊 TradingView", disabled=True, width='stretch', key=f"{zone_key}_tv_dis")
         with col3:
-            st.button("🔍 Screener.in", disabled=True, use_container_width=True, key=f"{zone_key}_sc_dis")
+            st.button("🔍 Screener.in", disabled=True, width='stretch', key=f"{zone_key}_sc_dis")
         st.caption("⬆️ Click a row in the table above to enable navigation buttons")
 
 
@@ -4212,7 +4212,7 @@ def _render_guru_buy_table(guru_list: list):
                 unsafe_allow_html=True,
             )
     with h3:
-        if st.button("🔄 Refresh", key="guru_refresh_tbl", use_container_width=True, type="primary"):
+        if st.button("🔄 Refresh", key="guru_refresh_tbl", width='stretch', type="primary"):
             st.session_state.guru_do_refresh = True
             st.rerun()
     with h4:
@@ -4298,22 +4298,22 @@ def _render_guru_buy_table(guru_list: list):
         with col1:
             st.link_button("📈 NSE Chart",
                            f"https://www.nseindia.com/get-quotes/equity?symbol={selected_sym}",
-                           use_container_width=True, type="primary")
+                           width='stretch', type="primary")
         with col2:
             st.link_button("📊 TradingView",
                            f"https://in.tradingview.com/chart/?symbol=NSE%3A{selected_sym}&interval=D",
-                           use_container_width=True)
+                           width='stretch')
         with col3:
             st.link_button("🔍 Screener.in",
                            f"https://www.screener.in/company/{selected_sym}/",
-                           use_container_width=True)
+                           width='stretch')
     else:
         with col1:
-            st.button("📈 NSE Chart",    disabled=True, use_container_width=True, key="guru_nse_dis")
+            st.button("📈 NSE Chart",    disabled=True, width='stretch', key="guru_nse_dis")
         with col2:
-            st.button("📊 TradingView", disabled=True, use_container_width=True, key="guru_tv_dis")
+            st.button("📊 TradingView", disabled=True, width='stretch', key="guru_tv_dis")
         with col3:
-            st.button("🔍 Screener.in", disabled=True, use_container_width=True, key="guru_sc_dis")
+            st.button("🔍 Screener.in", disabled=True, width='stretch', key="guru_sc_dis")
         st.caption("⬆️ Click a row in the table above to enable navigation buttons")
 
     # ── Buying Zone ───────────────────────────────────────────────────────────
@@ -4415,7 +4415,7 @@ def _render_smc_analysis():
         )
         c1, c2 = st.columns([1, 5])
         with c1:
-            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key="smc_scan_m")
+            scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key="smc_scan_m")
         with c2:
             st.caption("Use NSE symbols. Data fetched from Yahoo Finance — same source as the LuxAlgo SMC indicator.")
         if scan_btn and txt.strip():
@@ -4430,7 +4430,7 @@ def _render_smc_analysis():
         )
         c1, c2, c3 = st.columns([1, 1, 4])
         with c1:
-            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key="smc_scan_f")
+            scan_f = st.button("🔍 Scan File", type="primary", width='stretch', key="smc_scan_f")
         with c2:
             sample = pd.DataFrame({"symbol": ["RELIANCE", "INFY", "TCS", "HDFCBANK", "WIPRO"]})
             st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
@@ -4645,17 +4645,17 @@ def _render_smc_card(d):
     with bc1:
         st.link_button("📈 NSE Chart",
                        f"https://www.nseindia.com/get-quotes/equity?symbol={nse_sym}",
-                       use_container_width=True, type="primary")
+                       width='stretch', type="primary")
     with bc2:
         st.link_button("📊 TradingView",
                        f"https://in.tradingview.com/chart/?symbol=NSE%3A{nse_sym}&interval=D",
-                       use_container_width=True)
+                       width='stretch')
     with bc3:
         st.link_button("🔍 Screener.in",
                        f"https://www.screener.in/company/{nse_sym}/",
-                       use_container_width=True)
+                       width='stretch')
     with bc4:
-        if st.button("🔄 Refresh SMC", use_container_width=True, type="primary",
+        if st.button("🔄 Refresh SMC", width='stretch', type="primary",
                      key="smc_refresh_card"):
             st.session_state.smc_do_refresh = True
             st.rerun()
@@ -4765,7 +4765,7 @@ def _render_smc_table(smc_list: list):
                 unsafe_allow_html=True,
             )
     with h3:
-        if st.button("🔄 Refresh", key="smc_refresh_tbl", use_container_width=True, type="primary"):
+        if st.button("🔄 Refresh", key="smc_refresh_tbl", width='stretch', type="primary"):
             st.session_state.smc_do_refresh = True
             st.rerun()
     with h4:
@@ -4900,29 +4900,29 @@ def _render_smc_table(smc_list: list):
         sel_sym = mdf.iloc[sel[0]]["Symbol"] if sel else None
         col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
         with col4:
-            if st.button("🔄 Refresh", key=f"{key_prefix}_ref", use_container_width=True, type="primary"):
+            if st.button("🔄 Refresh", key=f"{key_prefix}_ref", width='stretch', type="primary"):
                 st.session_state.smc_do_refresh = True
                 st.rerun()
         if sel_sym:
             with col1:
                 st.link_button("📈 NSE Chart",
                                f"https://www.nseindia.com/get-quotes/equity?symbol={sel_sym}",
-                               use_container_width=True, type="primary")
+                               width='stretch', type="primary")
             with col2:
                 st.link_button("📊 TradingView",
                                f"https://in.tradingview.com/chart/?symbol=NSE%3A{sel_sym}&interval=D",
-                               use_container_width=True)
+                               width='stretch')
             with col3:
                 st.link_button("🔍 Screener.in",
                                f"https://www.screener.in/company/{sel_sym}/",
-                               use_container_width=True)
+                               width='stretch')
         else:
             with col1:
-                st.button("📈 NSE Chart",    disabled=True, use_container_width=True, key=f"{key_prefix}_nse_dis")
+                st.button("📈 NSE Chart",    disabled=True, width='stretch', key=f"{key_prefix}_nse_dis")
             with col2:
-                st.button("📊 TradingView", disabled=True, use_container_width=True, key=f"{key_prefix}_tv_dis")
+                st.button("📊 TradingView", disabled=True, width='stretch', key=f"{key_prefix}_tv_dis")
             with col3:
-                st.button("🔍 Screener.in", disabled=True, use_container_width=True, key=f"{key_prefix}_sc_dis")
+                st.button("🔍 Screener.in", disabled=True, width='stretch', key=f"{key_prefix}_sc_dis")
             st.caption("⬆️ Click a row above to enable navigation buttons")
 
     col1_b, col2_b, col3_b, col4_b = st.columns([2, 2, 2, 2])
@@ -4935,27 +4935,27 @@ def _render_smc_table(smc_list: list):
             st.link_button(
                 "📈 NSE Chart",
                 f"https://www.nseindia.com/get-quotes/equity?symbol={selected_sym}",
-                use_container_width=True, type="primary",
+                width='stretch', type="primary",
             )
         with col2_b:
             st.link_button(
                 "📊 TradingView",
                 f"https://in.tradingview.com/chart/?symbol=NSE%3A{selected_sym}&interval=D",
-                use_container_width=True,
+                width='stretch',
             )
         with col3_b:
             st.link_button(
                 "🔍 Screener.in",
                 f"https://www.screener.in/company/{selected_sym}/",
-                use_container_width=True,
+                width='stretch',
             )
     else:
         with col1_b:
-            st.button("📈 NSE Chart",    disabled=True, use_container_width=True, key="smc_nse_dis")
+            st.button("📈 NSE Chart",    disabled=True, width='stretch', key="smc_nse_dis")
         with col2_b:
-            st.button("📊 TradingView", disabled=True, use_container_width=True, key="smc_tv_dis")
+            st.button("📊 TradingView", disabled=True, width='stretch', key="smc_tv_dis")
         with col3_b:
-            st.button("🔍 Screener.in", disabled=True, use_container_width=True, key="smc_sc_dis")
+            st.button("🔍 Screener.in", disabled=True, width='stretch', key="smc_sc_dis")
         st.caption("⬆️ Click a row in the table above to enable navigation buttons")
 
     st.markdown("---")
@@ -5357,7 +5357,7 @@ def _render_holdings_tab(asset_type: str) -> None:
             lc1, lc2 = st.columns([1, 5])
             with lc1:
                 if st.button("🔄 Refresh Now", key=f"hlive_{asset_type}",
-                             use_container_width=True):
+                             width='stretch'):
                     # Clear both the timestamp AND the cached prices for these symbols
                     # so stale values never persist across a manual refresh
                     st.session_state.pop(f"holdings_prices_at_{asset_type}", None)
@@ -5435,7 +5435,7 @@ def _render_holdings_tab(asset_type: str) -> None:
 
             se1, se2 = st.columns([1, 1])
             with se1:
-                if st.button("💾 Save SELL", type="primary", use_container_width=True,
+                if st.button("💾 Save SELL", type="primary", width='stretch',
                              key=f"{_se}save"):
                     new_qty   = float(st.session_state.get(f"{_se}sell_qty",   0))
                     new_price = float(st.session_state.get(f"{_se}sell_price", 0))
@@ -5462,7 +5462,7 @@ def _render_holdings_tab(asset_type: str) -> None:
                         else:
                             st.error(f"Error: {msg}")
             with se2:
-                if st.button("✖ Cancel", use_container_width=True, key=f"{_se}cancel"):
+                if st.button("✖ Cancel", width='stretch', key=f"{_se}cancel"):
                     for _sfx in _se_sfx:
                         st.session_state.pop(f"{_se}{_sfx}", None)
                     st.session_state["holdings_edit_id"] = None
@@ -5583,7 +5583,7 @@ def _render_holdings_tab(asset_type: str) -> None:
 
             sc1, sc2 = st.columns([1, 1])
             with sc1:
-                if st.button("💾 Save BUY", type="primary", use_container_width=True,
+                if st.button("💾 Save BUY", type="primary", width='stretch',
                              key=f"{_k}save_btn"):
                     sym_val   = st.session_state.get(f"{_k}sym", "").strip().upper()
                     buy_price = float(st.session_state.get(f"{_k}buy_price", 0))
@@ -5612,7 +5612,7 @@ def _render_holdings_tab(asset_type: str) -> None:
                         st.session_state["holdings_edit_id"] = None
                         st.rerun()
             with sc2:
-                if st.button("✖ Cancel", use_container_width=True, key=f"{_k}cancel_btn"):
+                if st.button("✖ Cancel", width='stretch', key=f"{_k}cancel_btn"):
                     for _sfx in _buy_sfx:
                         st.session_state.pop(f"{_k}{_sfx}", None)
                     st.session_state["holdings_edit_id"] = None
@@ -5649,7 +5649,7 @@ def _render_holdings_tab(asset_type: str) -> None:
             ss1, ss2 = st.columns([1, 1])
             with ss1:
                 if st.button("💾 Confirm Sell", type="primary",
-                             use_container_width=True, key=f"{_sk}confirm"):
+                             width='stretch', key=f"{_sk}confirm"):
                     sell_qty_v = float(st.session_state.get(f"{_sk}sell_qty", 0))
                     sell_px_v  = float(st.session_state.get(f"{_sk}sell_price", 0))
                     if sell_qty_v <= 0:
@@ -5675,7 +5675,7 @@ def _render_holdings_tab(asset_type: str) -> None:
                         else:
                             st.error(f"Error: {msg}")
             with ss2:
-                if st.button("✖ Cancel Sell", use_container_width=True, key=f"{_sk}cancel"):
+                if st.button("✖ Cancel Sell", width='stretch', key=f"{_sk}cancel"):
                     for _sfx in ("sell_qty","sell_price","sell_date","notes"):
                         st.session_state.pop(f"{_sk}{_sfx}", None)
                     st.session_state["holdings_sell_buy_id"] = None
@@ -5758,7 +5758,7 @@ def _render_holdings_tab(asset_type: str) -> None:
                 )
             with oc7:
                 if st.button("📤 Sell", key=f"op_sell_{h['id']}_{asset_type}",
-                             use_container_width=True):
+                             width='stretch'):
                     st.session_state["holdings_sell_buy_id"] = h["id"]
                     st.session_state["holdings_edit_id"]     = None
                     st.rerun()
@@ -5860,7 +5860,7 @@ def _render_holdings_tab(asset_type: str) -> None:
         styled = styled.map(_style_pnl_abs, subset=["P&L %"])
 
     evt = st.dataframe(
-        styled, hide_index=True, use_container_width=True,
+        styled, hide_index=True, width='stretch',
         on_select="rerun", selection_mode="single-row",
         column_config=col_cfg,
         key=f"holdings_df_{asset_type}",
@@ -5882,13 +5882,13 @@ def _render_holdings_tab(asset_type: str) -> None:
             ac1, ac2, _ = st.columns(btns)
 
         with ac1:
-            if st.button(f"✏️ Edit", key=f"h_edit_{asset_type}", use_container_width=True):
+            if st.button(f"✏️ Edit", key=f"h_edit_{asset_type}", width='stretch'):
                 st.session_state["holdings_edit_id"]   = sel_id
                 st.session_state["holdings_sell_buy_id"] = None
                 st.rerun()
         with ac2:
             if st.button(f"🗑 Delete", key=f"h_del_{asset_type}",
-                         use_container_width=True, type="secondary"):
+                         width='stretch', type="secondary"):
                 db.delete_holding(sel_id, user_phone)
                 st.session_state["holdings_edit_id"]   = None
                 st.session_state["holdings_sell_buy_id"] = None
@@ -5896,7 +5896,7 @@ def _render_holdings_tab(asset_type: str) -> None:
         if sel_type == "BUY" and sel_rem > 0.0001:
             with ac3:
                 if st.button(f"📤 Sell {sel_sym}", key=f"h_sell_{asset_type}",
-                             use_container_width=True):
+                             width='stretch'):
                     st.session_state["holdings_sell_buy_id"] = sel_id
                     st.session_state["holdings_edit_id"]     = None
                     st.rerun()
@@ -6166,7 +6166,7 @@ def _render_rsi_tab(prefix: str, label: str, sample_syms: list) -> None:
         )
         c1, c2 = st.columns([1, 5])
         with c1:
-            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key=f"{prefix}_scan_m")
+            scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key=f"{prefix}_scan_m")
         with c2:
             st.caption("Use NSE symbols. RSI data via Yahoo Finance · Live price via NSE India.")
         if scan_btn and txt.strip():
@@ -6180,7 +6180,7 @@ def _render_rsi_tab(prefix: str, label: str, sample_syms: list) -> None:
         )
         c1, c2, c3 = st.columns([1, 1, 4])
         with c1:
-            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key=f"{prefix}_scan_f")
+            scan_f = st.button("🔍 Scan File", type="primary", width='stretch', key=f"{prefix}_scan_f")
         with c2:
             sample = pd.DataFrame({"symbol": sample_syms})
             st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
@@ -6231,7 +6231,7 @@ def _render_rsi_tab(prefix: str, label: str, sample_syms: list) -> None:
 
     rb1, rb2, rb3 = st.columns([1, 1, 4])
     with rb1:
-        if st.button("🔄 Refresh", use_container_width=True, key=f"{prefix}_refresh_btn"):
+        if st.button("🔄 Refresh", width='stretch', key=f"{prefix}_refresh_btn"):
             st.session_state[f"{prefix}_do_refresh"] = True
             st.rerun()
     with rb2:
@@ -6329,7 +6329,7 @@ def _render_rsi_table(data: list, prefix: str) -> None:
         col_cfg["Error"] = txt_col("Error", width="large")
 
     st.dataframe(
-        styled, hide_index=True, use_container_width=True,
+        styled, hide_index=True, width='stretch',
         column_config=col_cfg,
         key=f"{prefix}_df",
     )
@@ -6503,7 +6503,7 @@ def _render_base_price_tab(tab_key: str) -> None:
         c1, c2 = st.columns([1, 5])
         with c1:
             scan_btn = st.button("🔍 Scan", type="primary",
-                                 use_container_width=True, key=f"{tab_key}_scan_m")
+                                 width='stretch', key=f"{tab_key}_scan_m")
         with c2:
             st.caption("NSE symbols. Fetches 3-year (738d) & 5-year (1230d) SMA from Yahoo Finance.")
         if scan_btn and txt.strip():
@@ -6517,7 +6517,7 @@ def _render_base_price_tab(tab_key: str) -> None:
         cf1, cf2, cf3 = st.columns([1, 1, 4])
         with cf1:
             scan_f = st.button("🔍 Scan File", type="primary",
-                               use_container_width=True, key=f"{tab_key}_scan_f")
+                               width='stretch', key=f"{tab_key}_scan_f")
         with cf2:
             _samp = pd.DataFrame({"symbol": ["RELIANCE","INFY","TCS","HDFCBANK","WIPRO"]})
             st.download_button("📥 Sample", _samp.to_csv(index=False).encode(),
@@ -6762,7 +6762,7 @@ def render_turtle_trading():
         )
         c1, c2 = st.columns([1, 5])
         with c1:
-            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key="tt_scan_m")
+            scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key="tt_scan_m")
         with c2:
             st.caption("Use NSE symbols. Data fetched from NSE India.")
         if scan_btn and txt.strip():
@@ -6776,7 +6776,7 @@ def render_turtle_trading():
         )
         c1, c2, c3 = st.columns([1, 1, 4])
         with c1:
-            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key="tt_scan_f")
+            scan_f = st.button("🔍 Scan File", type="primary", width='stretch', key="tt_scan_f")
         with c2:
             sample = pd.DataFrame({"symbol": ["RELIANCE", "INFY", "TCS", "HDFCBANK", "WIPRO"]})
             st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
@@ -6821,7 +6821,7 @@ def render_turtle_trading():
 
     rb1, rb2 = st.columns([1, 5])
     with rb1:
-        if st.button("🔄 Refresh", use_container_width=True, key="tt_refresh_btn"):
+        if st.button("🔄 Refresh", width='stretch', key="tt_refresh_btn"):
             st.session_state.tt_do_refresh = True
             st.rerun()
     with rb2:
@@ -6845,7 +6845,7 @@ def render_turtle_trading():
     )
 
     df = pd.DataFrame(data)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width='stretch', hide_index=True)
 
     # ── Export ────────────────────────────────────────────────────────────────
     ec1, ec2 = st.columns([1, 1])
@@ -7189,7 +7189,7 @@ def _render_daily_dukaan_table(data: list) -> None:
         num_col = st.column_config.NumberColumn
         txt_col = st.column_config.TextColumn
         st.dataframe(
-            df, hide_index=True, use_container_width=True,
+            df, hide_index=True, width='stretch',
             column_config={
                 "Symbol":            txt_col("Symbol",            width="small"),
                 "Company Name":      txt_col("Company Name",      width="large"),
@@ -7286,7 +7286,7 @@ def _render_daily_dukaan_table(data: list) -> None:
             ]
             sdf = pd.DataFrame(sug_rows)
             st.dataframe(
-                sdf, hide_index=True, use_container_width=True,
+                sdf, hide_index=True, width='stretch',
                 column_config={
                     "Rank":         st.column_config.NumberColumn("Rank",         format="%d",        width="small"),
                     "% vs 20 DMA":  st.column_config.NumberColumn("% vs 20 DMA",  format="%+.2f%%",   width="small"),
@@ -7346,7 +7346,7 @@ def _render_ll_etf():
         )
         c1, c2 = st.columns([1, 5])
         with c1:
-            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key="ll_etf_scan_m")
+            scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key="ll_etf_scan_m")
         with c2:
             st.caption("Use NSE symbols. Current price via NSE India · 5-year history via Yahoo Finance.")
         if scan_btn and txt.strip():
@@ -7361,7 +7361,7 @@ def _render_ll_etf():
         )
         c1, c2, c3 = st.columns([1, 1, 4])
         with c1:
-            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key="ll_etf_scan_f")
+            scan_f = st.button("🔍 Scan File", type="primary", width='stretch', key="ll_etf_scan_f")
         with c2:
             sample = pd.DataFrame({"symbol": ["NIFTYBEES", "BANKBEES", "GOLDBEES", "JUNIORBEES", "ITBEES"]})
             st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
@@ -7420,7 +7420,7 @@ def _render_ll_etf():
     # Refresh + Live buttons
     rb1, rb2, rb3 = st.columns([1, 1, 4])
     with rb1:
-        if st.button("🔄 Refresh", use_container_width=True, key="ll_etf_refresh_btn"):
+        if st.button("🔄 Refresh", width='stretch', key="ll_etf_refresh_btn"):
             st.session_state.ll_etf_do_refresh = True
             st.rerun()
     with rb2:
@@ -7494,7 +7494,7 @@ def _render_ll_etf_table(data: list) -> None:
                 pass
 
         st.dataframe(
-            df, hide_index=True, use_container_width=True,
+            df, hide_index=True, width='stretch',
             column_config={
                 "Symbol":                txt_col("Symbol",              width="small"),
                 "Company Name":          txt_col("Company Name",        width="large"),
@@ -7621,7 +7621,7 @@ def _render_ll_etf_table(data: list) -> None:
             ]
             sdf = pd.DataFrame(sug_rows)
             st.dataframe(
-                sdf, hide_index=True, use_container_width=True,
+                sdf, hide_index=True, width='stretch',
                 column_config={
                     "Rank":          st.column_config.NumberColumn("Rank",         format="%d",       width="small"),
                     pct_col:         st.column_config.NumberColumn(pct_col,        format="%+.2f%%",  width="small"),
@@ -7743,7 +7743,7 @@ def _render_eff():
         )
         c1, c2 = st.columns([1, 5])
         with c1:
-            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key="eff_scan_m")
+            scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key="eff_scan_m")
         with c2:
             st.caption("Use NSE symbols. Current price via NSE India · 5-year history via Yahoo Finance.")
         if scan_btn and txt.strip():
@@ -7758,7 +7758,7 @@ def _render_eff():
         )
         c1, c2, c3 = st.columns([1, 1, 4])
         with c1:
-            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key="eff_scan_f")
+            scan_f = st.button("🔍 Scan File", type="primary", width='stretch', key="eff_scan_f")
         with c2:
             sample = pd.DataFrame({"symbol": ["NIFTYBEES", "BANKBEES", "GOLDBEES", "JUNIORBEES", "ITBEES"]})
             st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
@@ -7817,7 +7817,7 @@ def _render_eff():
     # Refresh + Live buttons
     rb1, rb2, rb3 = st.columns([1, 1, 4])
     with rb1:
-        if st.button("🔄 Refresh", use_container_width=True, key="eff_refresh_btn"):
+        if st.button("🔄 Refresh", width='stretch', key="eff_refresh_btn"):
             st.session_state.eff_do_refresh = True
             st.rerun()
     with rb2:
@@ -7891,7 +7891,7 @@ def _render_eff_table(data: list) -> None:
                 pass
 
         st.dataframe(
-            df, hide_index=True, use_container_width=True,
+            df, hide_index=True, width='stretch',
             column_config={
                 "Symbol":                txt_col("Symbol",              width="small"),
                 "Company Name":          txt_col("Company Name",        width="large"),
@@ -8016,7 +8016,7 @@ def _render_eff_table(data: list) -> None:
             ]
             sdf = pd.DataFrame(sug_rows)
             st.dataframe(
-                sdf, hide_index=True, use_container_width=True,
+                sdf, hide_index=True, width='stretch',
                 column_config={
                     "Rank":          st.column_config.NumberColumn("Rank",         format="%d",       width="small"),
                     pct_col:         st.column_config.NumberColumn(pct_col,        format="%+.2f%%",  width="small"),
@@ -8131,11 +8131,11 @@ def render_admin():
         st.metric("Cached Symbols", cache_size)
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🗑 Clear Memory Cache", use_container_width=True):
+            if st.button("🗑 Clear Memory Cache", width='stretch'):
                 cache_manager.clear_all()
                 st.success("Memory cache cleared.")
         with col2:
-            if st.button("🗑 Clear DB Cache", use_container_width=True):
+            if st.button("🗑 Clear DB Cache", width='stretch'):
                 cleared = db.clear_cache()
                 st.success(f"Cleared {cleared} cached entries from database.")
 
