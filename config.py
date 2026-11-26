@@ -23,9 +23,11 @@ class Config:
     VERSION = "1.0.0"
     DEBUG = os.getenv("DEBUG", "False").lower() == "true"
 
-    # Database — use /tmp on cloud (writable, survives restarts within a session)
-    _cloud = bool(os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("HOSTNAME", "").startswith("streamlit"))
-    DB_PATH = "/tmp/guru_scanner.db" if _cloud else str(BASE_DIR / "guru_scanner.db")
+    # Database — Neon PostgreSQL on cloud, SQLite locally
+    # On Streamlit Cloud: add NEON_DATABASE_URL to App Settings → Secrets
+    _neon_url: str = ""   # filled by bootstrap()
+    DATABASE_URL: str = ""  # filled by bootstrap()
+    DB_PATH = str(BASE_DIR / "guru_scanner.db")  # kept for reference only
 
     # Admin
     ADMIN_PHONE: str = ""   # filled by _bootstrap() at app startup
@@ -51,10 +53,18 @@ class Config:
     @classmethod
     def bootstrap(cls) -> None:
         """Call once at app startup to load secrets (env or Streamlit Cloud)."""
-        cls.ADMIN_PHONE = _secret("ADMIN_PHONE")
-        cls.TWILIO_SID  = _secret("TWILIO_ACCOUNT_SID")
+        cls.ADMIN_PHONE  = _secret("ADMIN_PHONE")
+        cls.TWILIO_SID   = _secret("TWILIO_ACCOUNT_SID")
         cls.TWILIO_TOKEN = _secret("TWILIO_AUTH_TOKEN")
         cls.TWILIO_FROM  = _secret("TWILIO_PHONE_NUMBER")
+        # Neon PostgreSQL — set NEON_DATABASE_URL in Streamlit Cloud secrets
+        # Format: postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+        cls._neon_url   = _secret("NEON_DATABASE_URL")
+        cls.DATABASE_URL = (
+            cls._neon_url
+            if cls._neon_url
+            else f"sqlite:///{cls.DB_PATH}"
+        )
 
     @classmethod
     def is_sms_configured(cls) -> bool:

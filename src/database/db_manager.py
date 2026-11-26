@@ -120,34 +120,32 @@ class DatabaseManager:
             if self._initialized:
                 return
             from config import config
-            self.engine = create_engine(
-                f"sqlite:///{config.DB_PATH}",
-                connect_args={"check_same_thread": False},
-                echo=config.DEBUG,
-            )
+            db_url = config.DATABASE_URL or f"sqlite:///{config.DB_PATH}"
+            _is_sqlite = db_url.startswith("sqlite")
+            if _is_sqlite:
+                self.engine = create_engine(
+                    db_url,
+                    connect_args={"check_same_thread": False},
+                    echo=config.DEBUG,
+                )
+            else:
+                self.engine = create_engine(db_url, echo=config.DEBUG)
             Base.metadata.create_all(self.engine)
-            # Migrate: add scan_type column if the table was created before this change
-            try:
-                with self.engine.connect() as conn:
-                    conn.execute(text(
-                        "ALTER TABLE scan_sessions ADD COLUMN scan_type TEXT NOT NULL DEFAULT 'fundamentals'"
-                    ))
-                    conn.commit()
-            except Exception:
-                pass  # Column already exists
-            # Migrate holdings v2 columns
-            for _ddl in (
+            # Schema migrations — try/except silently skips if column already exists
+            _migrations = [
+                "ALTER TABLE scan_sessions ADD COLUMN scan_type TEXT NOT NULL DEFAULT 'fundamentals'",
                 "ALTER TABLE holdings ADD COLUMN transaction_type TEXT NOT NULL DEFAULT 'BUY'",
                 "ALTER TABLE holdings ADD COLUMN remaining_qty REAL",
                 "ALTER TABLE holdings ADD COLUMN parent_buy_id INTEGER",
-            ):
+            ]
+            for _ddl in _migrations:
                 try:
                     with self.engine.connect() as conn:
                         conn.execute(text(_ddl))
                         conn.commit()
                 except Exception:
-                    pass  # Column already exists
-            # Back-fill remaining_qty for existing rows
+                    pass
+            # Back-fill remaining_qty for existing BUY rows
             try:
                 with self.engine.connect() as conn:
                     conn.execute(text(
@@ -157,20 +155,6 @@ class DatabaseManager:
                     conn.execute(text(
                         "UPDATE holdings SET remaining_qty = 0 "
                         "WHERE remaining_qty IS NULL AND sell_date IS NOT NULL AND sell_date != ''"
-                    ))
-                    conn.commit()
-            except Exception:
-                pass
-            # Ensure user_sessions table exists (created via metadata.create_all above,
-            # but explicit DDL ensures it on databases that already exist)
-            try:
-                with self.engine.connect() as conn:
-                    conn.execute(text(
-                        "CREATE TABLE IF NOT EXISTS user_sessions ("
-                        "token TEXT PRIMARY KEY, "
-                        "phone_number TEXT NOT NULL, "
-                        "created_at TEXT NOT NULL, "
-                        "expires_at TEXT NOT NULL)"
                     ))
                     conn.commit()
             except Exception:
@@ -192,45 +176,39 @@ class DatabaseManager:
         finally:
             session.close()
 
-    # ── User operations ──────────────────────────────────────────────────────
-
     # ── Persistent session tokens ─────────────────────────────────────────────
 
     def save_session_token(self, token: str, phone_number: str, days: int = 30) -> None:
-        """Write a session token to SQLite so it survives server restarts."""
         from datetime import timedelta
         now     = datetime.utcnow()
         expires = now + timedelta(days=days)
-        with self.engine.connect() as conn:
-            conn.execute(text(
-                "INSERT OR REPLACE INTO user_sessions (token, phone_number, created_at, expires_at) "
-                "VALUES (:tok, :phone, :ca, :ea)"
-            ), {"tok": token, "phone": phone_number,
-                "ca": now.isoformat(), "ea": expires.isoformat()})
-            conn.commit()
+        with self.get_session() as session:
+            existing = session.query(UserSession).filter_by(token=token).first()
+            if existing:
+                existing.expires_at = expires
+            else:
+                session.add(UserSession(
+                    token=token, phone_number=phone_number,
+                    created_at=now, expires_at=expires,
+                ))
 
     def get_session_phone(self, token: str) -> Optional[str]:
-        """Return the phone number for a valid, non-expired token, or None."""
-        now = datetime.utcnow().isoformat()
-        with self.engine.connect() as conn:
-            row = conn.execute(text(
-                "SELECT phone_number FROM user_sessions "
-                "WHERE token = :tok AND expires_at > :now"
-            ), {"tok": token, "now": now}).fetchone()
-        return row[0] if row else None
+        now = datetime.utcnow()
+        with self.get_session() as session:
+            row = session.query(UserSession).filter(
+                UserSession.token == token,
+                UserSession.expires_at > now,
+            ).first()
+        return row.phone_number if row else None
 
     def delete_session_token(self, token: str) -> None:
-        with self.engine.connect() as conn:
-            conn.execute(text("DELETE FROM user_sessions WHERE token = :tok"),
-                         {"tok": token})
-            conn.commit()
+        with self.get_session() as session:
+            session.query(UserSession).filter_by(token=token).delete()
 
     def cleanup_expired_sessions(self) -> None:
-        now = datetime.utcnow().isoformat()
-        with self.engine.connect() as conn:
-            conn.execute(text("DELETE FROM user_sessions WHERE expires_at <= :now"),
-                         {"now": now})
-            conn.commit()
+        now = datetime.utcnow()
+        with self.get_session() as session:
+            session.query(UserSession).filter(UserSession.expires_at <= now).delete()
 
     # ── User operations ──────────────────────────────────────────────────────
 
@@ -611,16 +589,6 @@ class DatabaseManager:
             sell_row.notes      = data.get("notes", sell_row.notes or "")
             sell_row.updated_at = datetime.utcnow()
         return True, ""
-        with self.get_session() as session:
-            row = (
-                session.query(Holding)
-                .filter(Holding.id == holding_id, Holding.user_phone == user_phone)
-                .first()
-            )
-            if row:
-                session.delete(row)
-                return True
-        return False
 
     def get_holdings(self, user_phone: str,
                      asset_type: Optional[str] = None) -> List[Dict[str, Any]]:
