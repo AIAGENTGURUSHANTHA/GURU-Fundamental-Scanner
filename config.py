@@ -7,14 +7,18 @@ load_dotenv()
 
 def _secret(key: str, default: str = "") -> str:
     """Return env var; fall back to st.secrets on Streamlit Community Cloud."""
-    val = os.getenv(key, "")
-    if not val:
-        try:
-            import streamlit as st  # lazy — avoids import-order issues
-            val = str(st.secrets.get(key, default))
-        except Exception:
-            val = default
-    return val
+    val = os.getenv(key, "").strip()
+    if val:
+        return val
+    try:
+        import streamlit as st  # lazy — avoids import-order issues
+        raw = st.secrets.get(key, None)
+        if raw is not None:
+            val = str(raw).strip()
+    except Exception:
+        pass
+    # Guard against str(None) = "None" being used as a real value
+    return val if (val and val.lower() != "none") else default
 
 
 class Config:

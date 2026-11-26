@@ -1572,6 +1572,14 @@ def render_sidebar():
             st.rerun()
         st.markdown("---")
 
+        # ── Database status indicator ────────────────────────────────────────
+        _is_neon = config.DATABASE_URL.startswith("postgresql")
+        if _is_neon:
+            st.success("🗄️ Neon PostgreSQL", icon=None)
+        else:
+            st.warning("⚠️ SQLite (data not saved to cloud)", icon=None)
+        st.markdown("---")
+
         # ── Main section navigation ──────────────────────────────────────────
         st.markdown("**📂 Navigation**")
         active = st.session_state.section
