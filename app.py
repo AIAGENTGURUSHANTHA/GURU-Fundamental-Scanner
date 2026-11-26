@@ -359,42 +359,84 @@ def _live_btn(tab_prefix: str, refresh_key: str, btn_key: str) -> None:
 def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
     """
     Fetch live traded prices from NSE for all symbols.
-    Uses nsepython's curl_cffi session (bypasses NSE's Akamai Bot Manager).
-    The old /api/quote-equity endpoint is retired (HTTP 403 as of 2026).
-    Uses the newer GetQuoteApi endpoint instead.
+    Three-layer fallback so ETFs and uncommon series are covered:
+      1. NSE GetQuoteApi (fast, works for EQ-series stocks)
+      2. nsepython nse_eq() — hits a different NSE endpoint, handles ETFs
+      3. yfinance NSE:{sym} then {sym}.NS — last resort
     Returns {symbol: {"price": float, "time": str}}.
     """
-    try:
-        from nsepython.rahu import _get_nse_session, headers as _nse_headers
-    except ImportError:
-        return {}
-
-    # Session is already warmed by equity_history calls in Step 1 of each fetcher,
-    # so individual requests here are ~150 ms each.
-    sess = _get_nse_session()
     out: dict = {}
 
-    for sym in symbols:
-        url = (
-            "https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
-            f"?functionName=getSymbolData&marketType=N&series=EQ&symbol={sym}"
-        )
+    # ── Layer 1: NSE GetQuoteApi ──────────────────────────────────────────────
+    try:
+        from nsepython.rahu import _get_nse_session, headers as _nse_headers
+        sess = _get_nse_session()
+        for sym in symbols:
+            url = (
+                "https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
+                f"?functionName=getSymbolData&marketType=N&series=EQ&symbol={sym}"
+            )
+            try:
+                resp = sess.get(url, headers=_nse_headers, timeout=10)
+                if resp.status_code == 200:
+                    j  = resp.json()
+                    eq = j.get("equityResponse", [{}])
+                    if eq:
+                        r     = eq[0]
+                        order = r.get("orderBook", {}) or {}
+                        trade = r.get("tradeInfo", {}) or {}
+                        price = order.get("lastPrice") or trade.get("lastPrice")
+                        ts    = r.get("lastUpdateTime", "") or ""
+                        if price is not None:
+                            out[sym] = {
+                                "price": float(str(price).replace(",", "")),
+                                "time":  str(ts),
+                            }
+            except Exception:
+                pass
+    except ImportError:
+        pass
+
+    # ── Layer 2: nsepython nse_eq() — covers ETFs the GetQuoteApi misses ─────
+    _missing = [s for s in symbols if s not in out]
+    if _missing:
         try:
-            resp = sess.get(url, headers=_nse_headers, timeout=10)
-            if resp.status_code == 200:
-                j  = resp.json()
-                eq = j.get("equityResponse", [{}])
-                if eq:
-                    r     = eq[0]
-                    order = r.get("orderBook", {}) or {}
-                    trade = r.get("tradeInfo", {}) or {}
-                    price = order.get("lastPrice") or trade.get("lastPrice")
-                    ts    = r.get("lastUpdateTime", "") or ""
-                    if price is not None:
+            import logging as _lg
+            _lg.disable(_lg.WARNING)
+            from nsepython import nse_eq as _nse_eq
+            _lg.disable(_lg.NOTSET)
+            for sym in _missing:
+                try:
+                    _d = _nse_eq(sym.upper())
+                    _px = (
+                        _d.get("priceInfo", {}).get("lastPrice")
+                        or _d.get("marketDeptOrderBook", {}).get("tradeInfo", {}).get("lastPrice")
+                    )
+                    if _px is not None:
                         out[sym] = {
-                            "price": float(str(price).replace(",", "")),
-                            "time":  str(ts),
+                            "price": float(str(_px).replace(",", "")),
+                            "time":  _d.get("metadata", {}).get("lastUpdateTime", "nse_eq"),
                         }
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # ── Layer 3: yfinance — last resort (NSE: prefix handles ETFs better) ────
+    _missing = [s for s in symbols if s not in out]
+    if _missing:
+        try:
+            import yfinance as _yf
+            for sym in _missing:
+                for _ticker in (f"NSE:{sym}", f"{sym}.NS"):
+                    try:
+                        _fi = _yf.Ticker(_ticker).fast_info
+                        _px = getattr(_fi, "last_price", None)
+                        if _px:
+                            out[sym] = {"price": float(_px), "time": "yfinance"}
+                            break
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -5208,6 +5250,14 @@ def _render_holdings_tab(asset_type: str) -> None:
             st.session_state["holdings_live_prices"] = _new
             st.session_state[_fkey] = datetime.now()
             live_prices = _new
+        else:
+            # Prices are fresh — schedule an auto-rerun in 5 min so the page
+            # refreshes automatically even without user interaction
+            _secs_left = max(1, 300 - int((datetime.now() - _last).total_seconds()))
+            st.markdown(
+                f'<meta http-equiv="refresh" content="{_secs_left}">',
+                unsafe_allow_html=True,
+            )
 
     # ── Summary bar + Portfolio card ──────────────────────────────────────────
     if holdings:
@@ -5313,7 +5363,13 @@ def _render_holdings_tab(asset_type: str) -> None:
             with lc1:
                 if st.button("🔄 Refresh Now", key=f"hlive_{asset_type}",
                              use_container_width=True):
+                    # Clear both the timestamp AND the cached prices for these symbols
+                    # so stale values never persist across a manual refresh
                     st.session_state.pop(f"holdings_prices_at_{asset_type}", None)
+                    _cur = dict(st.session_state.get("holdings_live_prices", {}))
+                    for _s in _open_syms:
+                        _cur.pop(_s, None)
+                    st.session_state["holdings_live_prices"] = _cur
                     st.rerun()
             with lc2:
                 _last_at = st.session_state.get(f"holdings_prices_at_{asset_type}")
