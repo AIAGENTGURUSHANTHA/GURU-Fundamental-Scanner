@@ -5827,8 +5827,8 @@ def _render_holdings_tab(asset_type: str) -> None:
 
         _ss       = _sym_stats[h["symbol"]]
         _base_inv    = _ss["buy_cost"]
-        _avg_px      = _ss["rem_cost"] / _ss["rem_qty"] if _ss["rem_qty"] > 0 else 0.0
         _net_qty     = _ss["buy_qty"] - _ss["sell_qty"]
+        _avg_px      = _base_inv / _net_qty if _net_qty > 0 else 0.0
         _cur_val     = round(float(eff_price or 0) * _net_qty, 2) if eff_price else None
         _total_profit = round(_cur_val - _base_inv, 2) if _cur_val is not None else None
 
@@ -5874,7 +5874,7 @@ def _render_holdings_tab(asset_type: str) -> None:
         "Base Inv (₹)":   num_col("Base Inv (₹)",     format="₹%,.2f",
                                    help="Total capital invested in this symbol via all BUY transactions. Never reduced by sells."),
         "Avg Price (₹)":  num_col("Avg Price (₹)",    format="₹%.2f",
-                                   help="Weighted average buy price = Total buy cost ÷ Total shares bought."),
+                                   help="Avg Price = Base Investment ÷ Net Qty."),
         "Net Qty":        num_col("Net Qty",           format="%.4f",
                                    help="Current holding = Total shares bought − Total shares sold."),
         "Current Price":   num_col("Current Price",    format="₹%.2f"),
