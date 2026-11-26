@@ -23,12 +23,12 @@ RUN pip install --no-cache-dir --upgrade pip \
 # Copy application source
 COPY --chown=appuser:appuser . .
 
-# Remove local secrets file — secrets are injected as env vars in Cloud Run
+# Remove local secrets file — secrets are injected as env vars by Render
 RUN rm -f .streamlit/secrets.toml
 
 USER appuser
 
-# Cloud Run injects PORT (default 8080); Streamlit must bind to it
+# Render injects PORT at runtime (default 8080)
 EXPOSE 8080
 ENV PORT=8080
 
