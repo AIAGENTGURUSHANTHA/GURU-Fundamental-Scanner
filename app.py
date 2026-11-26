@@ -5188,7 +5188,7 @@ _PKJ_TABS = [
 ]
 
 _PKJ_DEFAULTS = {
-    "pkj_sbi_nifty50":   ("SETFNIF50",  "SBI - ETF Nifty 50"),
+    "pkj_sbi_nifty50":   ("SBINIFTY50",  "SBI - ETF Nifty 50"),
     "pkj_nippon_itbees": ("ITBEES",      "Nippon India ETF Nifty IT BeES"),
 }
 
@@ -5202,11 +5202,12 @@ def render_paiso_ka_jungle():
         "Additional calculation columns will be added soon.</p>",
         unsafe_allow_html=True,
     )
-    # Pre-populate fixed ETF symbol and company name for each PKJ tab
+    # Pre-populate fixed ETF symbol and company name for each PKJ tab.
+    # Always overwrite the symbol so a renamed symbol (e.g. SETFNIF50→SBINIFTY50)
+    # is picked up immediately without requiring the user to clear their session.
     for atype, (sym, name) in _PKJ_DEFAULTS.items():
         _k = f"hf_{atype}_"
-        if not st.session_state.get(f"{_k}sym"):
-            st.session_state[f"{_k}sym"] = sym
+        st.session_state[f"{_k}sym"] = sym
         if not st.session_state.get(f"{_k}name"):
             st.session_state[f"{_k}name"] = name
     tabs = st.tabs([label for _, label in _PKJ_TABS])
