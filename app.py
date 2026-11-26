@@ -5799,13 +5799,20 @@ def _render_holdings_tab(asset_type: str) -> None:
 
     # Per-symbol aggregations for Base Investment, Avg Price, Net Qty
     from collections import defaultdict as _dd
-    _sym_stats: dict = _dd(lambda: {"buy_cost": 0.0, "buy_qty": 0.0, "sell_qty": 0.0})
+    _sym_stats: dict = _dd(lambda: {"buy_cost": 0.0, "buy_qty": 0.0,
+                                     "rem_cost": 0.0, "rem_qty":  0.0,
+                                     "sell_qty": 0.0})
     for _h in holdings:
         _sym = _h["symbol"]
         _tt  = _h.get("transaction_type", "BUY")
         if _tt == "BUY":
-            _sym_stats[_sym]["buy_cost"] += float(_h.get("buy_price") or 0) * float(_h.get("buy_qty") or 0)
-            _sym_stats[_sym]["buy_qty"]  += float(_h.get("buy_qty") or 0)
+            _bpx = float(_h.get("buy_price") or 0)
+            _bqt = float(_h.get("buy_qty")   or 0)
+            _rqt = float(_h.get("remaining_qty") or _bqt)
+            _sym_stats[_sym]["buy_cost"] += _bpx * _bqt
+            _sym_stats[_sym]["buy_qty"]  += _bqt
+            _sym_stats[_sym]["rem_cost"] += _bpx * _rqt
+            _sym_stats[_sym]["rem_qty"]  += _rqt
         else:
             _sym_stats[_sym]["sell_qty"] += float(_h.get("sell_qty") or _h.get("buy_qty") or 0)
 
@@ -5819,7 +5826,7 @@ def _render_holdings_tab(asset_type: str) -> None:
 
         _ss       = _sym_stats[h["symbol"]]
         _base_inv = _ss["buy_cost"]
-        _avg_px   = _ss["buy_cost"] / _ss["buy_qty"] if _ss["buy_qty"] > 0 else 0.0
+        _avg_px   = _ss["rem_cost"] / _ss["rem_qty"] if _ss["rem_qty"] > 0 else 0.0
         _net_qty  = _ss["buy_qty"] - _ss["sell_qty"]
 
         rows.append({
