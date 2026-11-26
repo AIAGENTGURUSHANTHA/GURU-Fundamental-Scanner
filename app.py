@@ -5406,26 +5406,28 @@ def _render_holdings_tab(asset_type: str) -> None:
                     st.session_state[f"{_k}name"] = cached
             else:
                 with st.spinner(f"🔍 Looking up company name for {pending_sym}…"):
+                    _name = ""
+                    # Try NSE via nsepython first (most accurate for Indian stocks)
                     try:
-                        import yfinance as _yf
-                        _t = _yf.Ticker(f"{pending_sym}.NS")
-                        _name = ""
+                        import logging as _lg; _lg.disable(_lg.WARNING)
+                        from nsepython import nse_eq as _nse_eq
+                        _lg.disable(_lg.NOTSET)
+                        _nse_data = _nse_eq(pending_sym.upper())
+                        _name = (_nse_data.get("info", {}).get("companyName")
+                                 or _nse_data.get("metadata", {}).get("companyName") or "")
+                    except Exception:
+                        pass
+                    # Fall back to yfinance
+                    if not _name:
                         try:
-                            _fi = _t.fast_info
-                            for _a in ("long_name", "longName", "short_name", "shortName"):
-                                _v = getattr(_fi, _a, None)
-                                if _v:
-                                    _name = str(_v); break
+                            import yfinance as _yf
+                            _info = _yf.Ticker(f"{pending_sym}.NS").info or {}
+                            _name = _info.get("longName") or _info.get("shortName") or ""
                         except Exception:
                             pass
-                        if not _name:
-                            _info = _t.info or {}
-                            _name = _info.get("longName") or _info.get("shortName") or ""
-                        st.session_state[f"_yf_name_{pending_sym}"] = _name
-                        if _name:
-                            st.session_state[f"{_k}name"] = _name
-                    except Exception:
-                        st.session_state[f"_yf_name_{pending_sym}"] = ""
+                    st.session_state[f"_yf_name_{pending_sym}"] = _name
+                    if _name:
+                        st.session_state[f"{_k}name"] = _name
 
         def _on_sym_change():
             sym_val = st.session_state.get(f"{_k}sym", "").strip().upper()
