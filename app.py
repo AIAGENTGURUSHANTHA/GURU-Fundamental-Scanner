@@ -158,7 +158,8 @@ def _init():
     # Restore last active section from URL (survives browser refresh)
     _valid_sections = {
         "fundamentals", "technicals", "guru_smart_business",
-        "base_price_screener", "rsi_screener", "my_holdings", "admin",
+        "base_price_screener", "rsi_screener", "turtle_trading",
+        "my_holdings", "admin",
     }
     _qsec = st.query_params.get("_p", "")
     if _qsec in _valid_sections and "section" not in st.session_state:
@@ -258,6 +259,13 @@ def _init():
         "bps_stock_last_fetched_at": None,
         "bps_etf_data": [],
         "bps_etf_last_fetched_at": None,
+        # Turtle Trading
+        "tt_data": [],
+        "tt_last_fetched_at": None,
+        "tt_last_scan_symbols": [],
+        "tt_do_refresh": False,
+        "tt_active_scan_name": None,
+        "tt_ref_date": None,
         # My Holdings
         "holdings_active_tab": "equity",
         "holdings_edit_id": None,
@@ -1615,6 +1623,7 @@ def render_sidebar():
         gsb_type      = "primary" if active == "guru_smart_business" else "secondary"
         bps_type      = "primary" if active == "base_price_screener" else "secondary"
         rsi_type      = "primary" if active == "rsi_screener"        else "secondary"
+        tt_type       = "primary" if active == "turtle_trading"       else "secondary"
         holdings_type = "primary" if active == "my_holdings"         else "secondary"
 
         if st.button("📊 Fundamentals", use_container_width=True, type=fund_type, key="nav_fund"):
@@ -1632,6 +1641,9 @@ def render_sidebar():
             st.rerun()
         if st.button("📉 RSI Screener", use_container_width=True, type=rsi_type, key="nav_rsi"):
             st.session_state.section = "rsi_screener"
+            st.rerun()
+        if st.button("🐢 Turtle Trading", use_container_width=True, type=tt_type, key="nav_tt"):
+            st.session_state.section = "turtle_trading"
             st.rerun()
 
         if user.get("is_admin"):
@@ -6557,6 +6569,161 @@ def render_base_price_screener() -> None:
         _render_base_price_tab("bps_etf")
 
 
+# ── TURTLE TRADING ────────────────────────────────────────────────────────────
+
+def render_turtle_trading():
+    from datetime import date as _date
+    st.markdown("## 🐢 Turtle Trading")
+    st.markdown(
+        "<p style='color:gray;font-size:0.9rem;margin-bottom:0.5rem;'>"
+        "Turtle Trading strategy screener · Enter symbols to analyse · Calculation columns coming soon</p>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Reference date ────────────────────────────────────────────────────────
+    today = _date.today()
+    dcol1, dcol2 = st.columns([2, 5])
+    with dcol1:
+        saved_date  = st.session_state.get("tt_ref_date") or today
+        ref_date_val = st.date_input(
+            "Reference Date",
+            value=saved_date,
+            max_value=today,
+            help="Analysis is calculated as of this date.",
+            key="tt_date_picker",
+        )
+        st.session_state.tt_ref_date = ref_date_val
+    with dcol2:
+        st.markdown(
+            "<p style='color:gray;font-size:0.85rem;margin-top:1.9rem;'>"
+            "If the selected date falls on a weekend or NSE holiday, "
+            "the previous available trading day is used automatically.</p>",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
+
+    # ── Input tabs ────────────────────────────────────────────────────────────
+    tab_manual, tab_file = st.tabs(["📝 Enter Symbols", "📁 Upload File"])
+    symbols: list = []
+
+    with tab_manual:
+        txt = st.text_area(
+            "Stock symbols",
+            placeholder="Single stock:  TCS\nMultiple:  RELIANCE, INFY, TCS\nOne per line also works",
+            height=100,
+            label_visibility="collapsed",
+            key="tt_manual_input",
+        )
+        c1, c2 = st.columns([1, 5])
+        with c1:
+            scan_btn = st.button("🔍 Scan", type="primary", use_container_width=True, key="tt_scan_m")
+        with c2:
+            st.caption("Use NSE symbols. Data fetched from NSE India.")
+        if scan_btn and txt.strip():
+            st.session_state["_tt_pending_scan_name"] = f"Turtle Trading — {_now_ist().strftime('%d %b %H:%M')}"
+            symbols = _parser.parse_text_input(txt)
+
+    with tab_file:
+        up = st.file_uploader(
+            "Upload CSV / Excel / TXT", type=["csv", "xlsx", "xls", "txt"],
+            label_visibility="collapsed", key="tt_file_uploader",
+        )
+        c1, c2, c3 = st.columns([1, 1, 4])
+        with c1:
+            scan_f = st.button("🔍 Scan File", type="primary", use_container_width=True, key="tt_scan_f")
+        with c2:
+            sample = pd.DataFrame({"symbol": ["RELIANCE", "INFY", "TCS", "HDFCBANK", "WIPRO"]})
+            st.download_button("📥 Sample", sample.to_csv(index=False).encode(),
+                               "sample_stocks.csv", "text/csv", key="tt_sample_dl")
+        with c3:
+            st.caption("CSV/Excel: 'symbol' column or first column. TXT: one per line.")
+        if scan_f and up:
+            st.session_state["_tt_pending_scan_name"] = up.name
+            symbols = _parser.parse_file(up)
+            if not symbols:
+                st.warning("⚠️ No valid symbols found in file.")
+
+    # ── Fetch (placeholder — columns will be added when logic is provided) ────
+    if symbols:
+        scan_name = st.session_state.pop("_tt_pending_scan_name", "Turtle Trading")
+        st.session_state["tt_last_scan_symbols"] = symbols
+        st.session_state["tt_active_scan_name"]  = scan_name
+        st.session_state["tt_last_fetched_at"]   = datetime.now()
+        # Store raw symbol list as placeholder data until calculation logic is added
+        st.session_state["tt_data"] = [{"symbol": s} for s in symbols]
+
+    # ── Refresh ───────────────────────────────────────────────────────────────
+    if st.session_state.get("tt_do_refresh"):
+        st.session_state.tt_do_refresh = False
+        syms = st.session_state.get("tt_last_scan_symbols", [])
+        if syms:
+            st.session_state["tt_data"]          = [{"symbol": s} for s in syms]
+            st.session_state["tt_last_fetched_at"] = datetime.now()
+
+    # ── Results ───────────────────────────────────────────────────────────────
+    data = st.session_state.get("tt_data", [])
+    if not data:
+        return
+
+    fetched_at = st.session_state.get("tt_last_fetched_at")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Symbols Loaded", len(data))
+    c2.metric("Reference Date", str(ref_date_val))
+    c3.metric("Status", "Ready")
+    if fetched_at:
+        c4.metric("Last Fetched", _fmt_ts(fetched_at))
+
+    rb1, rb2 = st.columns([1, 5])
+    with rb1:
+        if st.button("🔄 Refresh", use_container_width=True, key="tt_refresh_btn"):
+            st.session_state.tt_do_refresh = True
+            st.rerun()
+    with rb2:
+        if _is_market_open():
+            st.success("🟢 **MARKET OPEN**")
+        else:
+            st.info("⏸ Market closed — showing latest available prices.")
+
+    st.markdown("---")
+
+    # ── Table (placeholder columns — calculation fields to be added) ──────────
+    dark = st.session_state.get("dark_mode", False)
+    hdr_bg  = "#1e2130" if dark else "#f1f5f9"
+    hdr_col = "#94a3b8" if dark else "#475569"
+    st.markdown(
+        f"<div style='background:{hdr_bg};border-radius:0.5rem;padding:0.6rem 1rem;"
+        f"color:{hdr_col};font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;'>"
+        f"⚙️ &nbsp; Calculation columns will be added here — "
+        f"{len(data)} symbol(s) ready for analysis</div>",
+        unsafe_allow_html=True,
+    )
+
+    df = pd.DataFrame(data)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # ── Export ────────────────────────────────────────────────────────────────
+    ec1, ec2 = st.columns([1, 1])
+    with ec1:
+        st.download_button(
+            "📥 CSV", df.to_csv(index=False).encode(),
+            f"turtle_trading_{ref_date_val}.csv", "text/csv", key="tt_csv_dl",
+        )
+    with ec2:
+        try:
+            import io as _io
+            _buf = _io.BytesIO()
+            df.to_excel(_buf, index=False)
+            st.download_button(
+                "📥 Excel", _buf.getvalue(),
+                f"turtle_trading_{ref_date_val}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="tt_excel_dl",
+            )
+        except Exception:
+            pass
+
+
 # ── GURU SMART BUSINESS ───────────────────────────────────────────────────────
 
 def render_guru_smart_business():
@@ -7848,6 +8015,8 @@ else:
         render_rsi_screener()
     elif section == "base_price_screener":
         render_base_price_screener()
+    elif section == "turtle_trading":
+        render_turtle_trading()
     elif section == "my_holdings":
         render_my_holdings()
     elif section == "admin" and st.session_state.user and st.session_state.user.get("is_admin"):
