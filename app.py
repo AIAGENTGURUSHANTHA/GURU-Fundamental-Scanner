@@ -155,6 +155,15 @@ def _init():
         else:
             st.query_params.clear()
 
+    # Restore last active section from URL (survives browser refresh)
+    _valid_sections = {
+        "fundamentals", "technicals", "guru_smart_business",
+        "base_price_screener", "rsi_screener", "my_holdings", "admin",
+    }
+    _qsec = st.query_params.get("_p", "")
+    if _qsec in _valid_sections and "section" not in st.session_state:
+        st.session_state["section"] = _qsec
+
     defaults = {
         "authenticated": False,
         "user": None,
@@ -1557,6 +1566,11 @@ def render_login():
 
 def render_sidebar():
     with st.sidebar:
+        # Keep URL query param in sync so browser refresh restores the active section
+        _cur_section = st.session_state.get("section", "fundamentals")
+        if st.query_params.get("_p", "") != _cur_section:
+            st.query_params["_p"] = _cur_section
+
         st.markdown(f"### 📊 {config.APP_NAME}")
         st.caption(f"v{config.VERSION}")
         st.markdown("---")
