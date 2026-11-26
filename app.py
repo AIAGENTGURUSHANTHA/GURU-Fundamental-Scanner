@@ -358,46 +358,59 @@ def _live_btn(tab_prefix: str, refresh_key: str, btn_key: str) -> None:
 
 def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
     """
-    Fetch live traded prices from NSE for all symbols.
-    Three-layer fallback so ETFs and uncommon series are covered:
-      1. NSE GetQuoteApi (fast, works for EQ-series stocks)
-      2. nsepython nse_eq() — hits a different NSE endpoint, handles ETFs
-      3. yfinance NSE:{sym} then {sym}.NS — last resort
+    Fetch live traded prices from NSE India only.
+    Two-layer approach — both layers hit nseindia.com directly:
+      1a. GetQuoteApi with series=EQ  (equity stocks)
+      1b. GetQuoteApi without series  (ETFs / other series not covered by EQ)
+      2.  nsepython nse_eq()          (uses NSE's equity-quote page API)
     Returns {symbol: {"price": float, "time": str}}.
     """
     out: dict = {}
 
-    # ── Layer 1: NSE GetQuoteApi ──────────────────────────────────────────────
+    # ── Layer 1: NSE GetQuoteApi (nseindia.com) ───────────────────────────────
     try:
         from nsepython.rahu import _get_nse_session, headers as _nse_headers
         sess = _get_nse_session()
+
+        def _parse_get_quote(j: dict) -> tuple:
+            eq = j.get("equityResponse", [{}])
+            if not eq:
+                return None, ""
+            r     = eq[0]
+            order = r.get("orderBook", {}) or {}
+            trade = r.get("tradeInfo", {}) or {}
+            price = order.get("lastPrice") or trade.get("lastPrice")
+            ts    = r.get("lastUpdateTime", "") or ""
+            return price, ts
+
         for sym in symbols:
-            url = (
-                "https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
-                f"?functionName=getSymbolData&marketType=N&series=EQ&symbol={sym}"
-            )
-            try:
-                resp = sess.get(url, headers=_nse_headers, timeout=10)
-                if resp.status_code == 200:
-                    j  = resp.json()
-                    eq = j.get("equityResponse", [{}])
-                    if eq:
-                        r     = eq[0]
-                        order = r.get("orderBook", {}) or {}
-                        trade = r.get("tradeInfo", {}) or {}
-                        price = order.get("lastPrice") or trade.get("lastPrice")
-                        ts    = r.get("lastUpdateTime", "") or ""
+            # 1a: EQ series (works for most equity stocks)
+            _got = False
+            for _url in (
+                f"https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
+                f"?functionName=getSymbolData&marketType=N&series=EQ&symbol={sym}",
+                # 1b: no series filter — catches ETFs, bonds, other series
+                f"https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
+                f"?functionName=getSymbolData&marketType=N&symbol={sym}",
+            ):
+                if _got:
+                    break
+                try:
+                    resp = sess.get(_url, headers=_nse_headers, timeout=10)
+                    if resp.status_code == 200:
+                        price, ts = _parse_get_quote(resp.json())
                         if price is not None:
                             out[sym] = {
                                 "price": float(str(price).replace(",", "")),
                                 "time":  str(ts),
                             }
-            except Exception:
-                pass
+                            _got = True
+                except Exception:
+                    pass
     except ImportError:
         pass
 
-    # ── Layer 2: nsepython nse_eq() — covers ETFs the GetQuoteApi misses ─────
+    # ── Layer 2: nsepython nse_eq() — NSE equity-quote page API ──────────────
     _missing = [s for s in symbols if s not in out]
     if _missing:
         try:
@@ -407,7 +420,7 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
             _lg.disable(_lg.NOTSET)
             for sym in _missing:
                 try:
-                    _d = _nse_eq(sym.upper())
+                    _d  = _nse_eq(sym.upper())
                     _px = (
                         _d.get("priceInfo", {}).get("lastPrice")
                         or _d.get("marketDeptOrderBook", {}).get("tradeInfo", {}).get("lastPrice")
@@ -419,24 +432,6 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                         }
                 except Exception:
                     pass
-        except Exception:
-            pass
-
-    # ── Layer 3: yfinance — last resort (NSE: prefix handles ETFs better) ────
-    _missing = [s for s in symbols if s not in out]
-    if _missing:
-        try:
-            import yfinance as _yf
-            for sym in _missing:
-                for _ticker in (f"NSE:{sym}", f"{sym}.NS"):
-                    try:
-                        _fi = _yf.Ticker(_ticker).fast_info
-                        _px = getattr(_fi, "last_price", None)
-                        if _px:
-                            out[sym] = {"price": float(_px), "time": "yfinance"}
-                            break
-                    except Exception:
-                        pass
         except Exception:
             pass
 
