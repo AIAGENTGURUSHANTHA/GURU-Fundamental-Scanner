@@ -536,7 +536,9 @@ class DatabaseManager:
                     parent.remaining_qty = float(parent.remaining_qty or 0) + sold
                     parent.updated_at = datetime.utcnow()
             session.delete(row)
-        return True(self, user_phone: str, buy_id: int,
+        return True
+
+    def add_sell_transaction(self, user_phone: str, buy_id: int,
                               sell_data: Dict[str, Any]) -> tuple:
         """Record a partial or full sell against a BUY row.
         Returns (success: bool, error_msg: str, new_id: int|None).
