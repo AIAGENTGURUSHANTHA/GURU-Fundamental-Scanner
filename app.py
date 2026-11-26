@@ -5126,6 +5126,11 @@ _PKJ_TABS = [
     ("pkj_nippon_itbees",  "📈 NIPPON ITBEES PED"),
 ]
 
+_PKJ_DEFAULTS = {
+    "pkj_sbi_nifty50":   ("SETFNIF50",  "SBI - ETF Nifty 50"),
+    "pkj_nippon_itbees": ("ITBEES",      "Nippon India ETF Nifty IT BeES"),
+}
+
 
 def render_paiso_ka_jungle():
     st.markdown("## 🌳 Paiso Ka Jungle")
@@ -5136,6 +5141,13 @@ def render_paiso_ka_jungle():
         "Additional calculation columns will be added soon.</p>",
         unsafe_allow_html=True,
     )
+    # Pre-populate fixed ETF symbol and company name for each PKJ tab
+    for atype, (sym, name) in _PKJ_DEFAULTS.items():
+        _k = f"hf_{atype}_"
+        if not st.session_state.get(f"{_k}sym"):
+            st.session_state[f"{_k}sym"] = sym
+        if not st.session_state.get(f"{_k}name"):
+            st.session_state[f"{_k}name"] = name
     tabs = st.tabs([label for _, label in _PKJ_TABS])
     for (atype, _), tab in zip(_PKJ_TABS, tabs):
         with tab:
