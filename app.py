@@ -1575,9 +1575,21 @@ def render_sidebar():
         # ── Database status indicator ────────────────────────────────────────
         _is_neon = config.DATABASE_URL.startswith("postgresql")
         if _is_neon:
-            st.success("🗄️ Neon PostgreSQL", icon=None)
+            st.markdown(
+                '<div style="background:#16a34a;color:#ffffff;border-radius:0.5rem;'
+                'padding:0.55rem 0.75rem;font-weight:600;font-size:0.85rem;'
+                'text-align:center;letter-spacing:0.01em;">'
+                '✅ &nbsp;Neon PostgreSQL</div>',
+                unsafe_allow_html=True,
+            )
         else:
-            st.warning("⚠️ SQLite (data not saved to cloud)", icon=None)
+            st.markdown(
+                '<div style="background:#b45309;color:#ffffff;border-radius:0.5rem;'
+                'padding:0.55rem 0.75rem;font-weight:600;font-size:0.85rem;'
+                'text-align:center;letter-spacing:0.01em;">'
+                '⚠️ &nbsp;SQLite — data not saved to cloud</div>',
+                unsafe_allow_html=True,
+            )
         st.markdown("---")
 
         # ── Main section navigation ──────────────────────────────────────────
