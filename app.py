@@ -5324,19 +5324,15 @@ def _render_holdings_tab(asset_type: str) -> None:
         open_buy  = _open_buy_pre   # already computed above
 
         # Compute portfolio numbers for the summary card
-        invested_open    = sum(
-            float(h["buy_price"]) * float(h.get("remaining_qty") or h.get("buy_qty") or 0)
-            for h in open_buy
+        base_investment  = sum(
+            float(h["buy_price"]) * float(h.get("buy_qty") or 0)
+            for h in buy_rows
         )
         cur_val_open     = sum(
             float(live_prices[h["symbol"]]) * float(h.get("remaining_qty") or h.get("buy_qty") or 0)
             for h in open_buy if live_prices.get(h["symbol"])
         )
-        invested_priced  = sum(
-            float(h["buy_price"]) * float(h.get("remaining_qty") or h.get("buy_qty") or 0)
-            for h in open_buy if live_prices.get(h["symbol"])
-        )
-        virt_pnl_total   = cur_val_open - invested_priced
+        virt_pnl_total   = cur_val_open - base_investment
         priced_cnt       = sum(1 for h in open_buy if live_prices.get(h["symbol"]))
         has_prices       = priced_cnt > 0
 
@@ -5349,7 +5345,7 @@ def _render_holdings_tab(asset_type: str) -> None:
             bg_c  = ("rgba(20,83,45,0.35)" if pos else "rgba(69,10,10,0.35)") if dark else \
                     ("rgba(220,252,231,0.7)" if pos else "rgba(254,226,226,0.7)")
             txt_c = ("#4ade80" if pos else "#f87171") if dark else ("#15803d" if pos else "#b91c1c")
-            pct   = (virt_pnl_total / invested_priced * 100) if invested_priced else 0
+            pct   = (virt_pnl_total / base_investment * 100) if base_investment else 0
             pnl_str = f"₹{virt_pnl_total:+,.2f} &nbsp; ({pct:+.2f}%)"
             price_note = f"{priced_cnt} of {len(open_buy)} positions priced"
         else:
@@ -5371,8 +5367,8 @@ def _render_holdings_tab(asset_type: str) -> None:
     </div>
   </div>
   <div style="text-align:center;">
-    <div style="font-size:0.76rem;color:{lbl_c};">Invested (open)</div>
-    <div style="font-size:1.1rem;font-weight:700;">₹{invested_open:,.2f}</div>
+    <div style="font-size:0.76rem;color:{lbl_c};">Base Investment</div>
+    <div style="font-size:1.1rem;font-weight:700;">₹{base_investment:,.2f}</div>
   </div>
   <div style="text-align:center;">
     <div style="font-size:0.76rem;color:{lbl_c};">Current Value</div>
