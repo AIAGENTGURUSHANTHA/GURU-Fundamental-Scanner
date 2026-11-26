@@ -1599,15 +1599,20 @@ def render_sidebar():
         if st.button("📉 RSI Screener", use_container_width=True, type=rsi_type, key="nav_rsi"):
             st.session_state.section = "rsi_screener"
             st.rerun()
-        if st.button("💼 My Holdings", use_container_width=True, type=holdings_type, key="nav_holdings"):
-            st.session_state.section = "my_holdings"
-            st.rerun()
 
         if user.get("is_admin"):
             admin_type = "primary" if active == "admin" else "secondary"
             if st.button("⚙️ Admin Panel", use_container_width=True, type=admin_type, key="nav_admin"):
                 st.session_state.section = "admin"
                 st.rerun()
+
+        st.markdown("---")
+
+        # ── Portfolio section ─────────────────────────────────────────────────
+        st.markdown("**💼 Portfolio**")
+        if st.button("💼 My Holdings", use_container_width=True, type=holdings_type, key="nav_holdings"):
+            st.session_state.section = "my_holdings"
+            st.rerun()
 
         st.markdown("---")
 
