@@ -58,8 +58,14 @@ class Config:
         cls.TWILIO_TOKEN = _secret("TWILIO_AUTH_TOKEN")
         cls.TWILIO_FROM  = _secret("TWILIO_PHONE_NUMBER")
         # Neon PostgreSQL — set NEON_DATABASE_URL in Streamlit Cloud secrets
-        # Format: postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
-        cls._neon_url   = _secret("NEON_DATABASE_URL")
+        raw_neon = _secret("NEON_DATABASE_URL")
+        if raw_neon:
+            # Normalize: Neon gives postgres:// or postgresql://, SQLAlchemy needs postgresql+psycopg2://
+            if raw_neon.startswith("postgres://"):
+                raw_neon = "postgresql+psycopg2://" + raw_neon[len("postgres://"):]
+            elif raw_neon.startswith("postgresql://"):
+                raw_neon = "postgresql+psycopg2://" + raw_neon[len("postgresql://"):]
+        cls._neon_url   = raw_neon
         cls.DATABASE_URL = (
             cls._neon_url
             if cls._neon_url

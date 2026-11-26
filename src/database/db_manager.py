@@ -119,9 +119,12 @@ class DatabaseManager:
         with self._lock:
             if self._initialized:
                 return
+            import logging
             from config import config
             db_url = config.DATABASE_URL or f"sqlite:///{config.DB_PATH}"
             _is_sqlite = db_url.startswith("sqlite")
+            _db_label = "SQLite (local)" if _is_sqlite else "Neon PostgreSQL"
+            logging.getLogger(__name__).info("Database: %s", _db_label)
             if _is_sqlite:
                 self.engine = create_engine(
                     db_url,
