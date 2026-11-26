@@ -371,39 +371,6 @@ class DatabaseManager:
             if otp:
                 otp.is_used = True
 
-    # ── Stock cache operations ────────────────────────────────────────────────
-
-    def cache_stock_data(self, symbol: str, data: Dict[str, Any]) -> None:
-        with self.get_session() as session:
-            cache = (
-                session.query(StockCache)
-                .filter(StockCache.symbol == symbol)
-                .first()
-            )
-            if cache:
-                cache.data = json.dumps(data, default=str)
-                cache.fetched_at = datetime.utcnow()
-            else:
-                cache = StockCache(
-                    symbol=symbol,
-                    data=json.dumps(data, default=str),
-                )
-                session.add(cache)
-
-    def get_cached_stock(self, symbol: str) -> Optional[Dict[str, Any]]:
-        with self.get_session() as session:
-            cache = (
-                session.query(StockCache)
-                .filter(StockCache.symbol == symbol)
-                .first()
-            )
-            if cache:
-                return {
-                    "data": json.loads(cache.data),
-                    "fetched_at": cache.fetched_at,
-                }
-        return None
-
     def clear_cache(self) -> int:
         with self.get_session() as session:
             count = session.query(StockCache).count()

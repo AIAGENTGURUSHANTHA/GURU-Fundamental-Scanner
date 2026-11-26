@@ -177,29 +177,6 @@ class ETFFetcher:
             return EMAData(symbol=sym, company_name=scheme_name,
                            error=f"Fetch error: {exc}")
 
-    def fetch_ema_bulk(self, symbols: List[str], ref_date: Optional[date] = None,
-                       scheme_map: Optional[dict] = None,
-                       max_workers: int = 5) -> List[EMAData]:
-        """Parallel bulk EMA fetch for a list of ETF symbols."""
-        ref_date   = ref_date or date.today()
-        scheme_map = scheme_map or {}
-        results_map: dict = {}
-
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {
-                ex.submit(self.fetch_ema, sym, ref_date,
-                          scheme_map.get(sym, "")): sym
-                for sym in symbols
-            }
-            for future in as_completed(futures):
-                sym = futures[future]
-                try:
-                    results_map[sym] = future.result(timeout=120)
-                except Exception as exc:
-                    results_map[sym] = EMAData(symbol=sym.upper(), error=str(exc))
-
-        return [results_map.get(s, EMAData(symbol=s, error="Not fetched")) for s in symbols]
-
     # ── Internal ──────────────────────────────────────────────────────────────
 
     @staticmethod

@@ -41,29 +41,6 @@ class LLETFFetcher:
         ref_date = ref_date or date.today()
         return self._fetch_one(sym, ref_date)
 
-    def fetch_bulk(self, symbols: List[str], ref_date: Optional[date] = None,
-                   max_workers: int = 8) -> List[LLETFData]:
-        ref_date    = ref_date or date.today()
-        results_map: dict = {}
-
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {ex.submit(self._fetch_one, sym.strip().upper(), ref_date): sym
-                       for sym in symbols}
-            for future in as_completed(futures):
-                sym = futures[future]
-                try:
-                    results_map[sym.strip().upper()] = future.result(timeout=180)
-                except Exception as exc:
-                    results_map[sym.strip().upper()] = LLETFData(
-                        symbol=sym.strip().upper(), error=str(exc)
-                    )
-
-        return [
-            results_map.get(s.strip().upper(),
-                            LLETFData(symbol=s.strip().upper(), error="Not fetched"))
-            for s in symbols
-        ]
-
     # ── Core fetch ────────────────────────────────────────────────────────────
 
     def _fetch_one(self, sym: str, ref_date: date) -> LLETFData:

@@ -40,29 +40,6 @@ class DailyDukaanFetcher:
         ref_date = ref_date or date.today()
         return self._fetch_one(sym, ref_date)
 
-    def fetch_bulk(self, symbols: List[str], ref_date: Optional[date] = None,
-                   max_workers: int = 10) -> List[DailyDukaanData]:
-        ref_date    = ref_date or date.today()
-        results_map: dict = {}
-
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {ex.submit(self._fetch_one, sym.strip().upper(), ref_date): sym
-                       for sym in symbols}
-            for future in as_completed(futures):
-                sym = futures[future]
-                try:
-                    results_map[sym.strip().upper()] = future.result(timeout=120)
-                except Exception as exc:
-                    results_map[sym.strip().upper()] = DailyDukaanData(
-                        symbol=sym.strip().upper(), error=str(exc)
-                    )
-
-        return [
-            results_map.get(s.strip().upper(),
-                            DailyDukaanData(symbol=s.strip().upper(), error="Not fetched"))
-            for s in symbols
-        ]
-
     # ── Fetch strategies ──────────────────────────────────────────────────────
 
     def _fetch_one(self, sym: str, ref_date: date) -> DailyDukaanData:

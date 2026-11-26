@@ -46,21 +46,6 @@ class DataAggregator:
             cache_manager.set(sym, data.model_dump())
         return data
 
-    def fetch_stocks_bulk(self, symbols: List[str]) -> List[StockData]:
-        results: List[StockData] = []
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            future_map = {executor.submit(self.fetch_stock, sym): sym for sym in symbols}
-            for future in as_completed(future_map):
-                sym = future_map[future]
-                try:
-                    results.append(future.result(timeout=90))
-                except Exception as exc:
-                    results.append(StockData(
-                        symbol=sym.upper(), company_name=sym.upper(),
-                        error=str(exc), data_source="error",
-                    ))
-        return results
-
     # ── Private ───────────────────────────────────────────────────────────────
 
     def _aggregate(self, symbol: str) -> StockData:

@@ -60,9 +60,5 @@ class Config:
     def is_sms_configured(cls) -> bool:
         return all([cls.TWILIO_SID, cls.TWILIO_TOKEN, cls.TWILIO_FROM])
 
-    @classmethod
-    def is_admin_configured(cls) -> bool:
-        return bool(cls.ADMIN_PHONE)
-
 
 config = Config()

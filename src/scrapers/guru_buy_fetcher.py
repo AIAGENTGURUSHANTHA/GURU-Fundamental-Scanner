@@ -71,20 +71,6 @@ class GURUBuyFetcher:
             })
         return result
 
-    def fetch_bulk(self, symbols: List[str], ref_date: Optional[date] = None,
-                   max_workers: int = 5) -> List[GURUBuyData]:
-        ref_date = ref_date or date.today()
-        results_map: dict = {}
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {ex.submit(self.fetch, sym, ref_date): sym for sym in symbols}
-            for future in as_completed(futures):
-                sym = futures[future]
-                try:
-                    results_map[sym] = future.result(timeout=120)
-                except Exception as exc:
-                    results_map[sym] = GURUBuyData(symbol=sym.upper(), error=str(exc))
-        return [results_map.get(s, GURUBuyData(symbol=s, error="Not fetched")) for s in symbols]
-
     # ── Internal ──────────────────────────────────────────────────────────────
 
     @staticmethod

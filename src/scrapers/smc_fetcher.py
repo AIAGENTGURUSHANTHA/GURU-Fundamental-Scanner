@@ -95,21 +95,6 @@ class SMCFetcher:
             })
         return result
 
-    def fetch_bulk(self, symbols: List[str], ref_date: Optional[date] = None,
-                   swing_size: int = DEFAULT_SWING_SIZE,
-                   max_workers: int = 5) -> List[SMCData]:
-        ref_date = ref_date or date.today()
-        results_map: dict = {}
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {ex.submit(self.fetch, sym, ref_date, swing_size): sym for sym in symbols}
-            for future in as_completed(futures):
-                sym = futures[future]
-                try:
-                    results_map[sym] = future.result(timeout=120)
-                except Exception as exc:
-                    results_map[sym] = SMCData(symbol=sym.upper(), error=str(exc))
-        return [results_map.get(s, SMCData(symbol=s, error="Not fetched")) for s in symbols]
-
     # ── Internal ──────────────────────────────────────────────────────────────
 
     @staticmethod

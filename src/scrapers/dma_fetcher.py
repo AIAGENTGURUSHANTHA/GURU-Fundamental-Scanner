@@ -61,26 +61,6 @@ class DMAFetcher:
             })
         return result
 
-    def fetch_dma_bulk(self, symbols: List[str], ref_date: Optional[date] = None,
-                       max_workers: int = 5) -> List[DMAData]:
-        """
-        Parallel bulk fetch with company names.
-        Returns results in the same order as `symbols`.
-        """
-        ref_date = ref_date or date.today()
-        results_map: dict = {}
-
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {ex.submit(self.fetch_dma, sym, ref_date): sym for sym in symbols}
-            for future in as_completed(futures):
-                sym = futures[future]
-                try:
-                    results_map[sym] = future.result(timeout=120)
-                except Exception as exc:
-                    results_map[sym] = DMAData(symbol=sym.upper(), error=str(exc))
-
-        return [results_map.get(s, DMAData(symbol=s, error="Not fetched")) for s in symbols]
-
     # ── Internal ──────────────────────────────────────────────────────────────
 
     @staticmethod

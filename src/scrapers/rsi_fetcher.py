@@ -49,28 +49,6 @@ class RSIFetcher:
         except Exception as exc:
             return RSIData(symbol=sym, error=f"Fetch error: {exc}")
 
-    def fetch_bulk(self, symbols: List[str], ref_date: Optional[date] = None,
-                   max_workers: int = 8) -> List[RSIData]:
-        ref_date    = ref_date or date.today()
-        results_map: dict = {}
-
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futures = {ex.submit(self.fetch, sym, ref_date): sym for sym in symbols}
-            for future in as_completed(futures):
-                sym = futures[future]
-                try:
-                    results_map[sym.strip().upper()] = future.result(timeout=120)
-                except Exception as exc:
-                    results_map[sym.strip().upper()] = RSIData(
-                        symbol=sym.strip().upper(), error=str(exc)
-                    )
-
-        return [
-            results_map.get(s.strip().upper(),
-                            RSIData(symbol=s.strip().upper(), error="Not fetched"))
-            for s in symbols
-        ]
-
     # ── Company name (class-level cache) ─────────────────────────────────────
 
     def _get_company_name(self, sym: str,

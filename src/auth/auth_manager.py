@@ -84,30 +84,6 @@ class AuthManager:
         role = "admin" if is_admin else "user"
         return True, f"User {phone} added as {role}."
 
-    def remove_user(self, phone_number: str) -> Tuple[bool, str]:
-        phone = self.normalize_phone(phone_number)
-        if not phone:
-            return False, "Invalid mobile number format."
-
-        success = db.delete_user(phone)
-        if success:
-            return True, f"User {phone} removed."
-        return False, f"User {phone} not found."
-
-    def toggle_active(self, phone_number: str) -> Tuple[bool, str]:
-        phone = self.normalize_phone(phone_number)
-        if not phone:
-            return False, "Invalid mobile number format."
-
-        user = db.get_user(phone)
-        if not user:
-            return False, f"User {phone} not found."
-
-        new_state = not user["is_active"]
-        db.update_user(phone, is_active=new_state)
-        status = "activated" if new_state else "deactivated"
-        return True, f"User {phone} {status}."
-
     def list_users(self) -> List[Dict[str, Any]]:
         return db.list_users()
 
@@ -145,9 +121,6 @@ class AuthManager:
             return cleaned
 
         return None
-
-    def is_valid_phone(self, phone: str) -> bool:
-        return self.normalize_phone(phone) is not None
 
 
 auth_manager = AuthManager()
