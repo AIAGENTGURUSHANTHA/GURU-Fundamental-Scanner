@@ -5071,6 +5071,64 @@ def _holding_pnl(h: dict, live_prices: dict) -> tuple:
     return None, None, days, True, None
 
 
+def _group_open_buys(open_entries: list, live_prices: dict) -> list:
+    """Merge multiple open BUY rows for the same symbol into one aggregated tuple."""
+    from collections import defaultdict as _dd2
+    from datetime import date as _date2
+
+    groups: dict = _dd2(list)
+    for entry in open_entries:
+        groups[entry[0]["symbol"]].append(entry)
+
+    result = []
+    for sym, entries in groups.items():
+        total_cost = 0.0
+        total_remaining = 0.0
+        earliest_date: str = ""
+        name = ""
+
+        for h, *_ in entries:
+            remaining = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
+            total_cost      += float(h["buy_price"]) * remaining
+            total_remaining += remaining
+            bd = h.get("buy_date", "") or ""
+            if bd and (not earliest_date or bd < earliest_date):
+                earliest_date = bd
+            if not name and h.get("company_name"):
+                name = h["company_name"]
+
+        avg_price = (total_cost / total_remaining) if total_remaining > 0 else 0.0
+        live      = live_prices.get(sym)
+
+        if live and total_remaining > 0:
+            pnl_amt = round(live * total_remaining - total_cost, 2)
+            pnl_pct = round((pnl_amt / total_cost * 100) if total_cost else 0.0, 2)
+            eff_price = live
+        else:
+            pnl_amt = pnl_pct = eff_price = None
+
+        try:
+            days = (_date2.today() - _date2.fromisoformat(earliest_date)).days
+        except Exception:
+            days = 0
+
+        merged_h = {
+            "symbol":           sym,
+            "company_name":     name or sym,
+            "transaction_type": "BUY",
+            "buy_price":        avg_price,
+            "buy_qty":          total_remaining,
+            "remaining_qty":    total_remaining,
+            "buy_date":         earliest_date,
+            "notes":            "",
+            "_grouped":         len(entries) > 1,
+            "_entry_count":     len(entries),
+        }
+        result.append((merged_h, pnl_amt, pnl_pct, days, True, eff_price))
+
+    return result
+
+
 def _holding_card_html(h: dict, pnl_amt, pnl_pct, days: int,
                         is_open: bool, eff_price, dark: bool) -> str:
     t_type  = h.get("transaction_type", "BUY")
@@ -5124,9 +5182,13 @@ def _holding_card_html(h: dict, pnl_amt, pnl_pct, days: int,
     else:
         remaining = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
         invested  = h["buy_price"] * h["buy_qty"]
+        is_grouped = h.get("_grouped", False)
+        entry_count = h.get("_entry_count", 1)
+        price_label = f"Avg ({entry_count} lots):" if is_grouped else "Bought:"
+        date_label  = "Since" if is_grouped else ""
         detail_line = (
-            f"Bought: ₹{h['buy_price']:,.2f} × {h['buy_qty']:,.0f} = ₹{invested:,.2f}"
-            f" &nbsp;·&nbsp; {h['buy_date']} &nbsp;·&nbsp; {days}d"
+            f"{price_label} ₹{h['buy_price']:,.2f} × {h['buy_qty']:,.0f} = ₹{invested:,.2f}"
+            f" &nbsp;·&nbsp; {date_label} {h['buy_date']} &nbsp;·&nbsp; {days}d"
             f" &nbsp;·&nbsp; Remaining: {remaining:,.4g}"
         )
         badge = "BUY"
@@ -5895,17 +5957,20 @@ def _render_holdings_tab(asset_type: str) -> None:
         pnl_amt, pnl_pct, days, is_open, eff_price = _holding_pnl(h, live_prices)
         computed.append((h, pnl_amt, pnl_pct, days, is_open, eff_price))
 
-    # Open BUY positions with virtual P&L
-    open_above = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in computed
-                  if h.get("transaction_type","BUY") == "BUY" and io
-                  and pp is not None and pp > _THRESHOLD]
-    open_below = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in computed
-                  if h.get("transaction_type","BUY") == "BUY" and io
-                  and pp is not None and pp <= _THRESHOLD]
+    # Group open BUY positions by symbol (one card per symbol)
+    all_open_buys = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in computed
+                     if h.get("transaction_type", "BUY") == "BUY" and io]
+    grouped_open  = _group_open_buys(all_open_buys, live_prices)
+
+    open_above = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in grouped_open
+                  if pp is not None and pp > _THRESHOLD]
+    open_below = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in grouped_open
+                  if pp is not None and pp <= _THRESHOLD]
+    no_price   = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in grouped_open
+                  if pp is None]
+
     sell_pnl   = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in computed
-                  if h.get("transaction_type","BUY") == "SELL" and pp is not None]
-    no_price   = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in computed
-                  if h.get("transaction_type","BUY") == "BUY" and io and pp is None]
+                  if h.get("transaction_type", "BUY") == "SELL" and pp is not None]
 
     open_above.sort(key=lambda x: x[2], reverse=True)
     open_below.sort(key=lambda x: x[2])
