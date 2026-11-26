@@ -5806,9 +5806,10 @@ def _render_holdings_tab(asset_type: str) -> None:
         _sym = _h["symbol"]
         _tt  = _h.get("transaction_type", "BUY")
         if _tt == "BUY":
-            _bpx = float(_h.get("buy_price") or 0)
-            _bqt = float(_h.get("buy_qty")   or 0)
-            _rqt = float(_h.get("remaining_qty") or _bqt)
+            _bpx  = float(_h.get("buy_price") or 0)
+            _bqt  = float(_h.get("buy_qty")   or 0)
+            _rraw = _h.get("remaining_qty")
+            _rqt  = float(_bqt if _rraw is None else _rraw)   # None → not yet tracked, use buy_qty; 0 → fully sold, use 0
             _sym_stats[_sym]["buy_cost"] += _bpx * _bqt
             _sym_stats[_sym]["buy_qty"]  += _bqt
             _sym_stats[_sym]["rem_cost"] += _bpx * _rqt
