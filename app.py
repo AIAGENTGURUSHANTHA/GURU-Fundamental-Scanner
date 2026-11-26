@@ -250,13 +250,6 @@ def _init():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _fmt(value, prefix="", suffix="", decimals=2, fallback="—"):
-    if value is None:
-        return fallback
-    if isinstance(value, float):
-        return f"{prefix}{value:,.{decimals}f}{suffix}"
-    return f"{prefix}{value}{suffix}"
-
 
 def _chg_color(pct):
     if pct is None:
