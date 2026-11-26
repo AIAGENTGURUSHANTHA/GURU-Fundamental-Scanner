@@ -5825,30 +5825,34 @@ def _render_holdings_tab(asset_type: str) -> None:
             remaining = h.get("buy_qty")
 
         _ss       = _sym_stats[h["symbol"]]
-        _base_inv = _ss["buy_cost"]
-        _avg_px   = _ss["rem_cost"] / _ss["rem_qty"] if _ss["rem_qty"] > 0 else 0.0
-        _net_qty  = _ss["buy_qty"] - _ss["sell_qty"]
+        _base_inv    = _ss["buy_cost"]
+        _avg_px      = _ss["rem_cost"] / _ss["rem_qty"] if _ss["rem_qty"] > 0 else 0.0
+        _net_qty     = _ss["buy_qty"] - _ss["sell_qty"]
+        _cur_val     = round(float(eff_price or 0) * _net_qty, 2) if eff_price else None
+        _total_profit = round(_cur_val - _base_inv, 2) if _cur_val is not None else None
 
         rows.append({
-            "ID":            h["id"],
-            "Txn":           t_type,
-            "Symbol":        h["symbol"],
-            "Company":       h["company_name"] or h["symbol"],
-            "Buy Date":      h["buy_date"],
-            "Buy Price (₹)": h["buy_price"],
-            "Qty":           h["buy_qty"],
-            "Invested (₹)":  round(float(h["buy_price"] or 0) * float(h["buy_qty"] or 0), 2),
-            "Remaining":     remaining if t_type == "BUY" else None,
-            "Base Inv (₹)":  _base_inv,
-            "Avg Price (₹)": _avg_px,
-            "Net Qty":       _net_qty,
-            "Current Price":  eff_price,
-            "P&L (₹)":       pnl_amt,
-            "P&L %":         pnl_pct,
-            "Days":          days,
-            "Sell Date":     h.get("sell_date") or "—",
-            "Sell Price (₹)": h.get("sell_price"),
-            "Sell Qty":      h.get("sell_qty"),
+            "ID":              h["id"],
+            "Txn":             t_type,
+            "Symbol":          h["symbol"],
+            "Company":         h["company_name"] or h["symbol"],
+            "Buy Date":        h["buy_date"],
+            "Buy Price (₹)":   h["buy_price"],
+            "Qty":             h["buy_qty"],
+            "Invested (₹)":    round(float(h["buy_price"] or 0) * float(h["buy_qty"] or 0), 2),
+            "Remaining":       remaining if t_type == "BUY" else None,
+            "Base Inv (₹)":    _base_inv,
+            "Avg Price (₹)":   _avg_px,
+            "Net Qty":         _net_qty,
+            "Current Price":   eff_price,
+            "Cur Value (₹)":   _cur_val,
+            "Total Profit (₹)": _total_profit,
+            "P&L (₹)":         pnl_amt,
+            "P&L %":           pnl_pct,
+            "Days":            days,
+            "Sell Date":       h.get("sell_date") or "—",
+            "Sell Price (₹)":  h.get("sell_price"),
+            "Sell Qty":        h.get("sell_qty"),
         })
 
     df = pd.DataFrame(rows)
@@ -5872,8 +5876,12 @@ def _render_holdings_tab(asset_type: str) -> None:
                                    help="Weighted average buy price = Total buy cost ÷ Total shares bought."),
         "Net Qty":        num_col("Net Qty",           format="%.4f",
                                    help="Current holding = Total shares bought − Total shares sold."),
-        "Current Price":  num_col("Current Price",   format="₹%.2f"),
-        "P&L (₹)":        num_col("P&L (₹)",          format="%+,.2f"),
+        "Current Price":   num_col("Current Price",    format="₹%.2f"),
+        "Cur Value (₹)":   num_col("Total Current Value", format="₹%,.2f",
+                                    help="Total Current Value = Current Price × Net Qty."),
+        "Total Profit (₹)": num_col("Total Profit",    format="%+,.2f",
+                                    help="Total Profit = Total Current Value − Base Investment."),
+        "P&L (₹)":         num_col("P&L (₹)",          format="%+,.2f"),
         "P&L %":          num_col("P&L %",             format="%+.2f%%"),
         "Days":           num_col("Days",              format="%d d"),
         "Sell Date":      txt_col("Sell Date",         width="small"),
@@ -5897,6 +5905,8 @@ def _render_holdings_tab(asset_type: str) -> None:
         styled = styled.map(_style_pnl_abs, subset=["P&L (₹)"])
     if "P&L %" in df_disp.columns:
         styled = styled.map(_style_pnl_abs, subset=["P&L %"])
+    if "Total Profit (₹)" in df_disp.columns:
+        styled = styled.map(_style_pnl_abs, subset=["Total Profit (₹)"])
 
     evt = st.dataframe(
         styled, hide_index=True, width='stretch',
