@@ -1932,9 +1932,10 @@ def render_sidebar():
         else:
             st.warning(
                 "⚠️ **screener.in not logged in.**  \n"
-                "Add these to **Streamlit Cloud → App Settings → Secrets**:  \n"
-                "```\n[screener]\nusername = \"aiagentgurushantha@gmail.com\"\n"
-                "password = \"Neelam@1986\"\n```  \n"
+                "Add credentials as environment variables (`SCREENER_USERNAME`, `SCREENER_PASSWORD`), "
+                "or in Streamlit Cloud Secrets:  \n"
+                "```\n[screener]\nusername = \"your@email.com\"\n"
+                "password = \"yourpassword\"\n```  \n"
                 "Without login, screener.in may block the server and show None values.",
                 icon=None,
             )
