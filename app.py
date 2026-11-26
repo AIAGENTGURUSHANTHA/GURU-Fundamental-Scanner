@@ -5847,7 +5847,7 @@ def _render_holdings_tab(asset_type: str) -> None:
             "Net Qty":         _net_qty,
             "Current Price":   eff_price,
             "Cur Value (₹)":   _cur_val,
-            "Total Profit (₹)": _total_profit,
+            "Total Cur Profit (₹)": _total_profit,
             "P&L (₹)":         pnl_amt,
             "P&L %":           pnl_pct,
             "Days":            days,
@@ -5880,7 +5880,7 @@ def _render_holdings_tab(asset_type: str) -> None:
         "Current Price":   num_col("Current Price",    format="₹%.2f"),
         "Cur Value (₹)":   num_col("Total Current Value", format="₹%,.2f",
                                     help="Total Current Value = Current Price × Net Qty."),
-        "Total Profit (₹)": num_col("Total Profit",    format="%+,.2f",
+        "Total Cur Profit (₹)": num_col("Total Current Profit",    format="%+,.2f",
                                     help="Total Profit = Total Current Value − Base Investment."),
         "P&L (₹)":         num_col("P&L (₹)",          format="%+,.2f"),
         "P&L %":          num_col("P&L %",             format="%+.2f%%"),
@@ -5906,8 +5906,8 @@ def _render_holdings_tab(asset_type: str) -> None:
         styled = styled.map(_style_pnl_abs, subset=["P&L (₹)"])
     if "P&L %" in df_disp.columns:
         styled = styled.map(_style_pnl_abs, subset=["P&L %"])
-    if "Total Profit (₹)" in df_disp.columns:
-        styled = styled.map(_style_pnl_abs, subset=["Total Profit (₹)"])
+    if "Total Cur Profit (₹)" in df_disp.columns:
+        styled = styled.map(_style_pnl_abs, subset=["Total Cur Profit (₹)"])
 
     evt = st.dataframe(
         styled, hide_index=True, width='stretch',
