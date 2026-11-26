@@ -132,7 +132,14 @@ class DatabaseManager:
                     echo=config.DEBUG,
                 )
             else:
-                self.engine = create_engine(db_url, echo=config.DEBUG)
+                self.engine = create_engine(
+                    db_url,
+                    echo=config.DEBUG,
+                    pool_pre_ping=True,   # test connection before use; auto-reconnect if Neon closed it
+                    pool_recycle=300,     # recycle connections every 5 min (Neon idle timeout)
+                    pool_size=5,
+                    max_overflow=10,
+                )
             Base.metadata.create_all(self.engine)
             # Schema migrations — try/except silently skips if column already exists
             _migrations = [
