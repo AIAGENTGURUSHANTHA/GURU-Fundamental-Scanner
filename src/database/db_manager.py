@@ -506,7 +506,37 @@ class DatabaseManager:
             row.updated_at   = datetime.utcnow()
         return True
 
-    def add_sell_transaction(self, user_phone: str, buy_id: int,
+    def delete_holding(self, holding_id: int, user_phone: str) -> bool:
+        """Delete a holding row (BUY or SELL) owned by user_phone.
+        If deleting a BUY row that has linked SELL rows, those are deleted too
+        and the parent BUY's remaining_qty is restored first.
+        """
+        with self.get_session() as session:
+            row = (
+                session.query(Holding)
+                .filter(Holding.id == holding_id, Holding.user_phone == user_phone)
+                .first()
+            )
+            if not row:
+                return False
+            if row.transaction_type == "BUY":
+                # Delete all SELL rows linked to this BUY first
+                session.query(Holding).filter(
+                    Holding.parent_buy_id == holding_id,
+                    Holding.user_phone == user_phone,
+                ).delete(synchronize_session=False)
+            elif row.transaction_type == "SELL" and row.parent_buy_id:
+                # Restore remaining_qty on the parent BUY row
+                parent = session.query(Holding).filter(
+                    Holding.id == row.parent_buy_id,
+                    Holding.user_phone == user_phone,
+                ).first()
+                if parent:
+                    sold = float(row.sell_qty or row.buy_qty or 0)
+                    parent.remaining_qty = float(parent.remaining_qty or 0) + sold
+                    parent.updated_at = datetime.utcnow()
+            session.delete(row)
+        return True(self, user_phone: str, buy_id: int,
                               sell_data: Dict[str, Any]) -> tuple:
         """Record a partial or full sell against a BUY row.
         Returns (success: bool, error_msg: str, new_id: int|None).
