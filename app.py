@@ -5734,28 +5734,34 @@ def _render_holdings_tab(asset_type: str) -> None:
             _gc = "#4ade80";           _rc = "#f87171"
 
         for _sym, _lots in _op_groups.items():
-            # Aggregate across all open lots for this symbol
+            # Aggregate using ALL holdings for this symbol (matches table columns)
             _lots_sorted  = sorted(_lots, key=lambda x: x.get("buy_date", ""))
-            _total_rem    = sum(float(x.get("remaining_qty") or x.get("buy_qty") or 0) for x in _lots_sorted)
-            _total_cost   = sum(float(x["buy_price"]) * float(x.get("remaining_qty") or x.get("buy_qty") or 0) for x in _lots_sorted)
-            _avg_bp       = _total_cost / _total_rem if _total_rem > 0 else 0.0
-            _live         = live_prices.get(_sym)
-            _company      = next((x.get("company_name") for x in _lots_sorted if x.get("company_name")), _sym)
             _fifo_id      = _lots_sorted[0]["id"]   # oldest lot used as sell source (FIFO)
+            _company      = next((x.get("company_name") for x in _lots_sorted if x.get("company_name")), _sym)
 
-            if _live and _total_rem > 0:
-                _cur_val_op = _live * _total_rem
-                _pnl_op     = _cur_val_op - _total_cost
-                _pnl_pct_op = (_pnl_op / _total_cost * 100) if _total_cost else 0
+            # Pull per-symbol stats from all holdings (BUY + SELL)
+            _all_buys_sym = [h for h in holdings if h["symbol"] == _sym and h.get("transaction_type","BUY") == "BUY"]
+            _all_sell_qty = sum(float(h.get("sell_qty") or h.get("buy_qty") or 0)
+                                for h in holdings if h["symbol"] == _sym and h.get("transaction_type","BUY") == "SELL")
+            _base_inv_sym = sum(float(h["buy_price"]) * float(h.get("buy_qty") or 0) for h in _all_buys_sym)
+            _total_buy_qty = sum(float(h.get("buy_qty") or 0) for h in _all_buys_sym)
+            _net_qty_sym   = _total_buy_qty - _all_sell_qty
+            _avg_bp        = _base_inv_sym / _net_qty_sym if _net_qty_sym > 0 else 0.0
+            _total_rem     = sum(float(x.get("remaining_qty") or x.get("buy_qty") or 0) for x in _lots_sorted)
+            _live          = live_prices.get(_sym)
+
+            if _live and _net_qty_sym > 0:
+                _cur_val_op = _live * _net_qty_sym
+                _pnl_op     = _cur_val_op - _base_inv_sym
+                _pnl_pct_op = (_pnl_op / _base_inv_sym * 100) if _base_inv_sym else 0
                 bg_col = _g if _pnl_op >= 0 else _r
                 fc_col = _gc if _pnl_op >= 0 else _rc
-                pnl_label    = f"₹{_pnl_op:+,.2f} ({_pnl_pct_op:+.2f}%)"
+                pnl_label     = f"₹{_pnl_op:+,.2f} ({_pnl_pct_op:+.2f}%)"
                 cur_price_str = f"₹{_live:,.2f}"
-                cur_val_str   = f"₹{_cur_val_op:,.2f}"
             else:
                 bg_col = "rgba(100,116,139,0.1)"; fc_col = "#64748b"
                 pnl_label = "⏳ Refresh for P&L"
-                cur_price_str = "—"; cur_val_str = "—"
+                cur_price_str = "—"
 
             lot_note = f"{len(_lots_sorted)} lot{'s' if len(_lots_sorted) > 1 else ''}"
 
@@ -5769,20 +5775,20 @@ def _render_holdings_tab(asset_type: str) -> None:
                 )
             with oc2:
                 st.markdown(
-                    f"<div style='font-size:0.82rem;color:#64748b;'>Avg Buy Price</div>"
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Avg Price</div>"
                     f"<div style='font-weight:600;'>₹{_avg_bp:,.2f}</div>",
                     unsafe_allow_html=True,
                 )
             with oc3:
                 st.markdown(
-                    f"<div style='font-size:0.82rem;color:#64748b;'>Remaining</div>"
-                    f"<div style='font-weight:600;'>{_total_rem:,.4g}</div>",
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Net Qty</div>"
+                    f"<div style='font-weight:600;'>{_net_qty_sym:,.4g}</div>",
                     unsafe_allow_html=True,
                 )
             with oc4:
                 st.markdown(
-                    f"<div style='font-size:0.82rem;color:#64748b;'>Invested (₹)</div>"
-                    f"<div style='font-weight:600;'>₹{_total_cost:,.2f}</div>",
+                    f"<div style='font-size:0.82rem;color:#64748b;'>Base Investment</div>"
+                    f"<div style='font-weight:600;'>₹{_base_inv_sym:,.2f}</div>",
                     unsafe_allow_html=True,
                 )
             with oc5:
@@ -5810,11 +5816,11 @@ def _render_holdings_tab(asset_type: str) -> None:
     # ── Main table ────────────────────────────────────────────────────────────
     st.markdown("### 📋 All Transactions")
 
-    # Per-symbol aggregations for Base Investment, Avg Price, Net Qty
+    # Per-symbol aggregations for Base Investment, Avg Price, Net Qty, Booked Profit
     from collections import defaultdict as _dd
     _sym_stats: dict = _dd(lambda: {"buy_cost": 0.0, "buy_qty": 0.0,
                                      "rem_cost": 0.0, "rem_qty":  0.0,
-                                     "sell_qty": 0.0})
+                                     "sell_qty": 0.0, "booked_profit": 0.0})
     for _h in holdings:
         _sym = _h["symbol"]
         _tt  = _h.get("transaction_type", "BUY")
@@ -5828,7 +5834,11 @@ def _render_holdings_tab(asset_type: str) -> None:
             _sym_stats[_sym]["rem_cost"] += _bpx * _rqt
             _sym_stats[_sym]["rem_qty"]  += _rqt
         else:
-            _sym_stats[_sym]["sell_qty"] += float(_h.get("sell_qty") or _h.get("buy_qty") or 0)
+            _sqt = float(_h.get("sell_qty") or _h.get("buy_qty") or 0)
+            _spx = float(_h.get("sell_price") or 0)
+            _bpx = float(_h.get("buy_price")  or 0)
+            _sym_stats[_sym]["sell_qty"]      += _sqt
+            _sym_stats[_sym]["booked_profit"] += round((_spx - _bpx) * _sqt, 2)
 
     rows = []
     for h in holdings:
@@ -5862,6 +5872,7 @@ def _render_holdings_tab(asset_type: str) -> None:
             "P&L (₹)":         pnl_amt   if t_type == "BUY"  else None,
             "P&L %":           pnl_pct   if t_type == "BUY"  else None,
             "Booked Profit (₹)": pnl_amt if t_type == "SELL" else None,
+            "Total Booked Profit (₹)": _ss["booked_profit"],
             "Days":            days,
             "Sell Date":       h.get("sell_date") or "—",
             "Sell Price (₹)":  h.get("sell_price"),
@@ -5896,6 +5907,8 @@ def _render_holdings_tab(asset_type: str) -> None:
         "P&L %":          num_col("P&L %",             format="%+.2f%%"),
         "Booked Profit (₹)": num_col("Booked Profit",  format="%+,.2f",
                                     help="Realized profit from this SELL transaction = (Sell Price − Buy Price) × Sell Qty."),
+        "Total Booked Profit (₹)": num_col("Total Booked Profit", format="%+,.2f",
+                                    help="Sum of all realized profits from SELL transactions for this symbol."),
         "Days":           num_col("Days",              format="%d d"),
         "Sell Date":      txt_col("Sell Date",         width="small"),
         "Sell Price (₹)": num_col("Sell Price (₹)",   format="₹%.2f"),
@@ -5920,6 +5933,8 @@ def _render_holdings_tab(asset_type: str) -> None:
         styled = styled.map(_style_pnl_abs, subset=["P&L %"])
     if "Booked Profit (₹)" in df_disp.columns:
         styled = styled.map(_style_pnl_abs, subset=["Booked Profit (₹)"])
+    if "Total Booked Profit (₹)" in df_disp.columns:
+        styled = styled.map(_style_pnl_abs, subset=["Total Booked Profit (₹)"])
 
     evt = st.dataframe(
         styled, hide_index=True, width='stretch',
