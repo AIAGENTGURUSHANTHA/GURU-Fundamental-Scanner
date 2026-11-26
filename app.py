@@ -159,7 +159,7 @@ def _init():
     _valid_sections = {
         "fundamentals", "technicals", "guru_smart_business",
         "base_price_screener", "rsi_screener", "turtle_trading",
-        "my_holdings", "admin",
+        "my_holdings", "paiso_ka_jungle", "admin",
     }
     _qsec = st.query_params.get("_p", "")
     if _qsec in _valid_sections and "section" not in st.session_state:
@@ -1658,6 +1658,10 @@ def render_sidebar():
         st.markdown("**💼 Portfolio**")
         if st.button("💼 My Holdings", use_container_width=True, type=holdings_type, key="nav_holdings"):
             st.session_state.section = "my_holdings"
+            st.rerun()
+        pkj_type = "primary" if active == "paiso_ka_jungle" else "secondary"
+        if st.button("🌳 Paiso Ka Jungle", use_container_width=True, type=pkj_type, key="nav_pkj"):
+            st.session_state.section = "paiso_ka_jungle"
             st.rerun()
 
         st.markdown("---")
@@ -5117,6 +5121,27 @@ def render_my_holdings():
             _render_holdings_tab(atype)
 
 
+_PKJ_TABS = [
+    ("pkj_sbi_nifty50",    "📊 SBI NIFTY50 PED"),
+    ("pkj_nippon_itbees",  "📈 NIPPON ITBEES PED"),
+]
+
+
+def render_paiso_ka_jungle():
+    st.markdown("## 🌳 Paiso Ka Jungle")
+    st.markdown(
+        "<p style='color:gray;font-size:0.9rem;margin-bottom:0.5rem;'>"
+        "Track your SIP &amp; lump-sum investments in index ETFs. "
+        "Data saved to your account — persists across sessions. "
+        "Additional calculation columns will be added soon.</p>",
+        unsafe_allow_html=True,
+    )
+    tabs = st.tabs([label for _, label in _PKJ_TABS])
+    for (atype, _), tab in zip(_PKJ_TABS, tabs):
+        with tab:
+            _render_holdings_tab(atype)
+
+
 def _render_holdings_tab(asset_type: str) -> None:
     dark        = st.session_state.get("dark_mode", False)
     user_phone  = st.session_state.user["phone_number"]
@@ -8022,5 +8047,7 @@ else:
         render_turtle_trading()
     elif section == "my_holdings":
         render_my_holdings()
+    elif section == "paiso_ka_jungle":
+        render_paiso_ka_jungle()
     elif section == "admin" and st.session_state.user and st.session_state.user.get("is_admin"):
         render_admin()
