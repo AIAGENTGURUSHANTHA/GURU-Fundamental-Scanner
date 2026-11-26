@@ -69,34 +69,57 @@ _aggregator = _get_aggregator()
 _parser = FileParser()
 
 
-# ── Session token store (survives page refresh) ───────────────────────────────
+# ── Session token store (L1 memory cache + L2 SQLite — survives restarts) ────
 
 @st.cache_resource
 def _get_session_store() -> dict:
-    """Server-side session token store. Persists across reruns; cleared on server restart."""
+    """In-memory L1 cache for session tokens. Warmed from DB on first miss."""
     return {}
 
 
 def _create_session_token(user: dict) -> str:
     import secrets
     token = secrets.token_urlsafe(32)
+    # Write to both memory cache and persistent DB
     _get_session_store()[token] = {"user": user, "ts": datetime.utcnow()}
+    db.save_session_token(token, user["phone_number"])
+    # Opportunistically remove expired tokens from DB
+    try:
+        db.cleanup_expired_sessions()
+    except Exception:
+        pass
     return token
 
 
 def _get_session_user(token: str):
+    # L1: memory cache (fast path)
     store = _get_session_store()
     entry = store.get(token)
-    if not entry:
-        return None
-    if (datetime.utcnow() - entry["ts"]).days > 7:
-        store.pop(token, None)
-        return None
-    return entry["user"]
+    if entry:
+        if (datetime.utcnow() - entry["ts"]).days > 30:
+            store.pop(token, None)
+        else:
+            return entry["user"]
+    # L2: SQLite (survives server restart / redeploy)
+    try:
+        phone = db.get_session_phone(token)
+        if phone:
+            user = db.get_user(phone)
+            if user:
+                # Warm L1 cache for subsequent requests
+                store[token] = {"user": user, "ts": datetime.utcnow()}
+                return user
+    except Exception:
+        pass
+    return None
 
 
 def _revoke_session_token(token: str) -> None:
     _get_session_store().pop(token, None)
+    try:
+        db.delete_session_token(token)
+    except Exception:
+        pass
 
 
 def _spinner_html(msg: str) -> str:

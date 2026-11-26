@@ -90,6 +90,16 @@ class Holding(Base):
     parent_buy_id    = Column(Integer, nullable=True)  # SELL rows: ID of the originating BUY
 
 
+class UserSession(Base):
+    """Persistent session tokens — survive server restarts and redeployments."""
+    __tablename__ = "user_sessions"
+
+    token        = Column(String(64), primary_key=True)
+    phone_number = Column(String(20), nullable=False, index=True)
+    created_at   = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at   = Column(DateTime, nullable=False)
+
+
 class DatabaseManager:
     _instance: Optional["DatabaseManager"] = None
     _lock = threading.Lock()
@@ -151,6 +161,20 @@ class DatabaseManager:
                     conn.commit()
             except Exception:
                 pass
+            # Ensure user_sessions table exists (created via metadata.create_all above,
+            # but explicit DDL ensures it on databases that already exist)
+            try:
+                with self.engine.connect() as conn:
+                    conn.execute(text(
+                        "CREATE TABLE IF NOT EXISTS user_sessions ("
+                        "token TEXT PRIMARY KEY, "
+                        "phone_number TEXT NOT NULL, "
+                        "created_at TEXT NOT NULL, "
+                        "expires_at TEXT NOT NULL)"
+                    ))
+                    conn.commit()
+            except Exception:
+                pass
             self.SessionLocal = sessionmaker(
                 bind=self.engine, autocommit=False, autoflush=False
             )
@@ -167,6 +191,46 @@ class DatabaseManager:
             raise
         finally:
             session.close()
+
+    # ── User operations ──────────────────────────────────────────────────────
+
+    # ── Persistent session tokens ─────────────────────────────────────────────
+
+    def save_session_token(self, token: str, phone_number: str, days: int = 30) -> None:
+        """Write a session token to SQLite so it survives server restarts."""
+        from datetime import timedelta
+        now     = datetime.utcnow()
+        expires = now + timedelta(days=days)
+        with self.engine.connect() as conn:
+            conn.execute(text(
+                "INSERT OR REPLACE INTO user_sessions (token, phone_number, created_at, expires_at) "
+                "VALUES (:tok, :phone, :ca, :ea)"
+            ), {"tok": token, "phone": phone_number,
+                "ca": now.isoformat(), "ea": expires.isoformat()})
+            conn.commit()
+
+    def get_session_phone(self, token: str) -> Optional[str]:
+        """Return the phone number for a valid, non-expired token, or None."""
+        now = datetime.utcnow().isoformat()
+        with self.engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT phone_number FROM user_sessions "
+                "WHERE token = :tok AND expires_at > :now"
+            ), {"tok": token, "now": now}).fetchone()
+        return row[0] if row else None
+
+    def delete_session_token(self, token: str) -> None:
+        with self.engine.connect() as conn:
+            conn.execute(text("DELETE FROM user_sessions WHERE token = :tok"),
+                         {"tok": token})
+            conn.commit()
+
+    def cleanup_expired_sessions(self) -> None:
+        now = datetime.utcnow().isoformat()
+        with self.engine.connect() as conn:
+            conn.execute(text("DELETE FROM user_sessions WHERE expires_at <= :now"),
+                         {"now": now})
+            conn.commit()
 
     # ── User operations ──────────────────────────────────────────────────────
 
