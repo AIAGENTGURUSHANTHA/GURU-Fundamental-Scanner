@@ -5474,29 +5474,6 @@ def _render_holdings_tab(asset_type: str) -> None:
         _k      = f"hf_{asset_type}_"
         _buy_sfx = ("sym", "name", "buy_date", "buy_price", "buy_qty", "notes", "lookup", "target")
 
-        # ── Auto-save handler (runs before form render) ───────────────────────
-        if st.session_state.pop(f"{_k}pending_autosave", False) and not editing:
-            _as_sym   = st.session_state.get(f"{_k}sym",       "").strip().upper()
-            _as_price = float(st.session_state.get(f"{_k}buy_price", 0) or 0)
-            _as_qty   = float(st.session_state.get(f"{_k}buy_qty",   0) or 0)
-            if _as_sym and _as_price > 0 and _as_qty > 0:
-                db.add_holding(user_phone, asset_type, {
-                    "symbol":       _as_sym,
-                    "company_name": st.session_state.get(f"{_k}name", "").strip(),
-                    "buy_date":     str(st.session_state.get(f"{_k}buy_date", date.today())),
-                    "buy_price":    _as_price,
-                    "buy_qty":      _as_qty,
-                    "notes":        st.session_state.get(f"{_k}notes", ""),
-                })
-                for _sfx in _buy_sfx:
-                    st.session_state.pop(f"{_k}{_sfx}", None)
-                st.session_state[f"{_k}autosaved_sym"] = _as_sym
-                st.rerun()
-
-        _autosaved = st.session_state.pop(f"{_k}autosaved_sym", None)
-        if _autosaved:
-            st.success(f"✅ **{_autosaved}** auto-saved to your portfolio")
-
         target = editing["id"] if editing else "new"
 
         if st.session_state.get(f"{_k}target") != target:
@@ -5550,20 +5527,11 @@ def _render_holdings_tab(asset_type: str) -> None:
             if sym_val:
                 st.session_state[f"{_k}lookup"] = sym_val
 
-        def _trigger_autosave():
-            if editing is not None:
-                return   # auto-save only for new entries
-            sym   = st.session_state.get(f"{_k}sym",       "").strip().upper()
-            price = float(st.session_state.get(f"{_k}buy_price", 0) or 0)
-            qty   = float(st.session_state.get(f"{_k}buy_qty",   0) or 0)
-            if sym and price > 0 and qty > 0:
-                st.session_state[f"{_k}pending_autosave"] = True
-
         buy_form_title = f"✏️ Edit BUY — {editing['symbol']}" if editing else "➕ Add New BUY"
         with st.expander(buy_form_title, expanded=(editing is not None or not holdings)):
             st.caption(
                 "💾 Your data is permanently saved to your account — it stays until you delete it. "
-                "Click **Save BUY** when ready, or simply fill in Symbol + Price + Qty and tab away to auto-save."
+                "Click **Save BUY** when ready."
             )
             fc1, fc2 = st.columns([1, 1])
             with fc1:
@@ -5575,11 +5543,9 @@ def _render_holdings_tab(asset_type: str) -> None:
                 st.date_input("Buy Date *", key=f"{_k}buy_date", max_value=date.today())
             with fc2:
                 st.number_input("Buy Price (₹) *", key=f"{_k}buy_price",
-                                min_value=0.0, format="%.4f",
-                                on_change=_trigger_autosave)
+                                min_value=0.0, format="%.4f")
                 st.number_input("Buy Qty *", key=f"{_k}buy_qty",
-                                min_value=0.0, format="%.4f",
-                                on_change=_trigger_autosave)
+                                min_value=0.0, format="%.4f")
                 st.text_area("Notes", key=f"{_k}notes", height=68)
 
             sc1, sc2 = st.columns([1, 1])
