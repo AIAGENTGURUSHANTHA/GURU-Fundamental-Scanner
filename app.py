@@ -1664,6 +1664,7 @@ def _do_tt_fetch(symbols: list, scan_name: str, ref_date=None,
         _save_scan(st.session_state.user["phone_number"], scan_name, results, scan_type="turtle_trading")
 
 
+def _load_bps_stock_session(s: dict) -> None:
     raw = json.loads(s["results_json"])
     st.session_state.bps_stock_data              = raw
     st.session_state.bps_stock_active_scan_name  = s["scan_name"]
