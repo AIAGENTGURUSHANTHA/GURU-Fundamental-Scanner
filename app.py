@@ -7703,35 +7703,56 @@ def _render_daily_dukaan_table(data: list) -> None:
         except Exception:
             pass
 
-    # ── Suggestions (collapsible) — shown first for quick overview ──────────────
+    # ── Suggestions — top 3 table + collapsible best-pick cards ────────────────
     ranked = sorted(
         [d for d in valid if d.pct_vs_dma20 is not None],
         key=lambda x: x.pct_vs_dma20,   # most negative first = cheapest
     )
-    top10 = ranked[:10]
+    top3 = ranked[:3]
+    top2 = ranked[:2]
 
     if len(ranked) >= 2:
-        with st.expander("💡 Top 10 Suggestions — Best Value Picks (Most Below 20 DMA)", expanded=True):
+        # ── Top 3 table (shown directly, before Filter & Sort) ────────────────
+        st.markdown("**💡 Top 3 Suggestions — Best Value Picks (Most Below 20 DMA)**")
+        sug_rows = [
+            {
+                "Rank":          i + 1,
+                "% vs 20 DMA":   top3[i].pct_vs_dma20,
+                "Symbol":        top3[i].symbol,
+                "Company Name":  top3[i].company_name or top3[i].symbol,
+            }
+            for i in range(len(top3))
+        ]
+        sdf = pd.DataFrame(sug_rows)
+        st.dataframe(
+            sdf, hide_index=True, width='stretch',
+            column_config={
+                "Rank":         st.column_config.NumberColumn("Rank",         format="%d",        width="small"),
+                "% vs 20 DMA":  st.column_config.NumberColumn("% vs 20 DMA",  format="%+.2f%%",   width="small"),
+                "Symbol":       st.column_config.TextColumn("Symbol",         width="small"),
+                "Company Name": st.column_config.TextColumn("Company Name",   width="large"),
+            },
+        )
+
+        # ── Collapsible: highlight cards only (no table) ──────────────────────
+        with st.expander("💡 Best Value Pick Cards (Most Below 20 DMA)", expanded=True):
             st.markdown(
                 "<p style='color:gray;font-size:0.85rem;margin-bottom:0.8rem;'>"
                 "Stocks / ETFs trading furthest <b>below</b> their 20-day moving average — "
                 "ranked by largest negative % gap, indicating the best potential for a mean-reversion bounce.</p>",
                 unsafe_allow_html=True,
             )
-
-            # Styled rank cards
-            for rank, d in enumerate(top10, start=1):
+            for rank, d in enumerate(top2, start=1):
                 pct  = d.pct_vs_dma20 or 0
                 diff = d.price_vs_dma20 or 0
                 pct_color  = "#16a34a" if pct >= 0 else "#dc2626"
                 pct_sign   = "+" if pct >= 0 else ""
                 diff_sign  = "+" if diff >= 0 else ""
-                medal      = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"][rank - 1]
+                medal      = ["🥇", "🥈"][rank - 1]
                 card_bg    = "#161b22" if dark else "#ffffff"
                 border_c   = "#30363d" if dark else "#dde3ec"
                 val_c      = "#c9d1d9" if dark else "#111827"
                 label_c    = "#8b949e" if dark else "#6b7280"
-
                 st.markdown(f"""
                 <div style="background:{card_bg};border:1px solid {border_c};border-radius:12px;
                             padding:0.9rem 1.2rem;margin-bottom:0.5rem;">
@@ -7766,29 +7787,6 @@ def _render_daily_dukaan_table(data: list) -> None:
                   </div>
                 </div>
                 """, unsafe_allow_html=True)
-
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # Also show as a sortable table for reference
-            sug_rows = [
-                {
-                    "Rank":          i + 1,
-                    "% vs 20 DMA":   top10[i].pct_vs_dma20,
-                    "Symbol":        top10[i].symbol,
-                    "Company Name":  top10[i].company_name or top10[i].symbol,
-                }
-                for i in range(len(top10))
-            ]
-            sdf = pd.DataFrame(sug_rows)
-            st.dataframe(
-                sdf, hide_index=True, width='stretch',
-                column_config={
-                    "Rank":         st.column_config.NumberColumn("Rank",         format="%d",        width="small"),
-                    "% vs 20 DMA":  st.column_config.NumberColumn("% vs 20 DMA",  format="%+.2f%%",   width="small"),
-                    "Symbol":       st.column_config.TextColumn("Symbol",         width="small"),
-                    "Company Name": st.column_config.TextColumn("Company Name",   width="large"),
-                },
-            )
 
     # ── 🥇 MUST BUY card — #1 cheapest (most below 20 DMA) ──────────────────────
     ranked_all = sorted(
@@ -8044,11 +8042,10 @@ def _render_ll_etf_table(data: list) -> None:
     valid   = [d for d in data if not d.error]
     errors  = [d for d in data if d.error]
 
-    # ── Helper: render top-10 ranked section (highlight cards + table) ──────
+    # ── Helper: render top-3 table + collapsible best-pick cards ───────────
     def _rank_section(title: str, metric_key: str, diff_key: str,
                       pct_col: str, ref_col: str, ref_label: str,
-                      ref_name: str, label_fn, detail_fn,
-                      expanded: bool = True) -> None:
+                      ref_name: str, expanded: bool = True) -> None:
         # Sort ascending: most negative (most below ref price) = Rank 1
         ranked_all = sorted(
             [d for d in valid if getattr(d, metric_key) is not None],
@@ -8057,24 +8054,48 @@ def _render_ll_etf_table(data: list) -> None:
         if len(ranked_all) < 2:
             return
 
-        top10 = ranked_all[:10]
+        top3 = ranked_all[:3]
+        top2 = ranked_all[:2]
 
-        with st.expander(title, expanded=expanded):
+        # ── Top 3 table (shown directly, before Filter & Sort) ───────────────
+        st.markdown(f"**{title}**")
+        sug_rows = [
+            {
+                "Rank":           i + 1,
+                pct_col:          getattr(top3[i], metric_key),
+                "Symbol":         top3[i].symbol,
+                "Company Name":   top3[i].company_name or top3[i].symbol,
+                ref_label:        getattr(top3[i], ref_col),
+                "Current Price":  top3[i].current_price,
+            }
+            for i in range(len(top3))
+        ]
+        sdf = pd.DataFrame(sug_rows)
+        st.dataframe(
+            sdf, hide_index=True, width='stretch',
+            column_config={
+                "Rank":          st.column_config.NumberColumn("Rank",         format="%d",       width="small"),
+                pct_col:         st.column_config.NumberColumn(pct_col,        format="%+.2f%%",  width="small"),
+                "Symbol":        st.column_config.TextColumn("Symbol",         width="small"),
+                "Company Name":  st.column_config.TextColumn("Company Name",   width="large"),
+                ref_label:       st.column_config.NumberColumn(ref_label,      format="₹%.2f"),
+                "Current Price": st.column_config.NumberColumn("Current Price (₹)", format="₹%.2f"),
+            },
+        )
+
+        # ── Collapsible: highlight cards only (no table) ─────────────────────
+        with st.expander("💡 Best Value Pick Cards", expanded=expanded):
             st.markdown(
                 "<p style='color:gray;font-size:0.85rem;margin-bottom:0.8rem;'>"
-                "Top 10 symbols trading furthest <b>below</b> their reference price — "
+                "Top 2 symbols trading furthest <b>below</b> their reference price — "
                 "ranked by largest negative % gap (Rank 1 = best value pick). "
                 "Negative % = below reference · Positive % = above reference.</p>",
                 unsafe_allow_html=True,
             )
-
-            # ── Top-2 highlight cards (MUST BUY style) ────────────────────────
             highlight_colors = [
-                # (border/text, bg-light, bg-dark, text-light, text-dark, label-light, label-dark)
                 ("#16a34a", "#f0fdf4", "#052e16", "#14532d", "#bbf7d0", "#15803d", "#86efac"),
                 ("#2563eb", "#eff6ff", "#172554", "#1e3a5f", "#bfdbfe", "#1d4ed8", "#93c5fd"),
             ]
-            top2 = top10[:2]
             for i, d in enumerate(top2):
                 pct      = getattr(d, metric_key) or 0
                 ref_val  = getattr(d, ref_col)
@@ -8124,90 +8145,39 @@ def _render_ll_etf_table(data: list) -> None:
 </div>
 """, unsafe_allow_html=True)
 
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # ── Summary table ─────────────────────────────────────────────────
-            sug_rows = [
-                {
-                    "Rank":           i + 1,
-                    pct_col:          getattr(top10[i], metric_key),
-                    "Symbol":         top10[i].symbol,
-                    "Company Name":   top10[i].company_name or top10[i].symbol,
-                    ref_label:        getattr(top10[i], ref_col),
-                    "Current Price":  top10[i].current_price,
-                }
-                for i in range(len(top10))
-            ]
-            sdf = pd.DataFrame(sug_rows)
-            st.dataframe(
-                sdf, hide_index=True, width='stretch',
-                column_config={
-                    "Rank":          st.column_config.NumberColumn("Rank",         format="%d",       width="small"),
-                    pct_col:         st.column_config.NumberColumn(pct_col,        format="%+.2f%%",  width="small"),
-                    "Symbol":        st.column_config.TextColumn("Symbol",         width="small"),
-                    "Company Name":  st.column_config.TextColumn("Company Name",   width="large"),
-                    ref_label:       st.column_config.NumberColumn(ref_label,      format="₹%.2f"),
-                    "Current Price": st.column_config.NumberColumn("Current Price (₹)", format="₹%.2f"),
-                },
-            )
-
     # ── Section 1: Ranked by % vs 52W Low ────────────────────────────────────
     _rank_section(
-        title="💡 Top 10 Suggestions — Best Value Picks (Most Below 52-Week Low)",
+        title="💡 Top 3 — Most Below 52-Week Low",
         metric_key="pct_vs_52w_low",
         diff_key="diff_52w_low",
         pct_col="% vs 52W Low",
         ref_col="week52_low",
         ref_label="52W Low (₹)",
         ref_name="52-Week Low",
-        label_fn=lambda d: (
-            f"Price ₹{d.current_price:,.2f}  ·  52W Low ₹{d.week52_low:,.2f}"
-            if d.current_price and d.week52_low else "—"
-        ),
-        detail_fn=lambda d: (
-            f"Diff {d.diff_52w_low:+.2f}  ·  {d.ref_date or '—'}"
-            if d.diff_52w_low is not None else "—"
-        ),
         expanded=True,
     )
 
     # ── Section 2: Ranked by % vs 3Y Avg ─────────────────────────────────────
     _rank_section(
-        title="💡 Top 10 Suggestions — Best Value Picks (Most Below 3-Year Average)",
+        title="💡 Top 3 — Most Below 3-Year Average",
         metric_key="pct_vs_3y",
         diff_key="diff_3y",
         pct_col="% vs 3Y Avg",
         ref_col="avg_price_3y",
         ref_label="3Y Avg (₹)",
         ref_name="3-Year Average",
-        label_fn=lambda d: (
-            f"Price ₹{d.current_price:,.2f}  ·  3Y Avg ₹{d.avg_price_3y:,.2f}"
-            if d.current_price and d.avg_price_3y else "—"
-        ),
-        detail_fn=lambda d: (
-            f"Diff {d.diff_3y:+.2f}  ·  {d.ref_date or '—'}"
-            if d.diff_3y is not None else "—"
-        ),
         expanded=False,
     )
 
     # ── Section 3: Ranked by % vs 5Y Avg ─────────────────────────────────────
     _rank_section(
-        title="💡 Top 10 Suggestions — Best Value Picks (Most Below 5-Year Average)",
+        title="💡 Top 3 — Most Below 5-Year Average",
         metric_key="pct_vs_5y",
         diff_key="diff_5y",
         pct_col="% vs 5Y Avg",
         ref_col="avg_price_5y",
         ref_label="5Y Avg (₹)",
         ref_name="5-Year Average",
-        label_fn=lambda d: (
-            f"Price ₹{d.current_price:,.2f}  ·  5Y Avg ₹{d.avg_price_5y:,.2f}"
-            if d.current_price and d.avg_price_5y else "—"
-        ),
-        detail_fn=lambda d: (
-            f"Diff {d.diff_5y:+.2f}  ·  {d.ref_date or '—'}"
-            if d.diff_5y is not None else "—"
-        ),
         expanded=False,
     )
 
@@ -8241,7 +8211,6 @@ def _render_ll_etf_table(data: list) -> None:
         num_col = st.column_config.NumberColumn
         txt_col = st.column_config.TextColumn
 
-        # Export buttons
         ec1, ec2, *_ = st.columns([1, 1, 4])
         with ec1:
             st.download_button(
@@ -8286,6 +8255,7 @@ def _render_ll_etf_table(data: list) -> None:
         with st.expander(f"⚠️ {len(errors)} symbol(s) could not be fetched"):
             for d in errors:
                 st.markdown(f"- **{d.symbol}**: {d.error}")
+
 
 def _render_eff():
     from datetime import date as _date
@@ -8438,16 +8408,15 @@ def _render_eff():
 
 
 def _render_eff_table(data: list) -> None:
-    """Main Eshwarana Fruit Forest table + 3 collapsible ranked sections."""
+    """Main Eshwarana Fruit Forest table + 3 ranked sections (top-3 table + card expander)."""
     dark    = st.session_state.get("dark_mode", False)
     valid   = [d for d in data if not d.error]
     errors  = [d for d in data if d.error]
 
-    # ── Helper: render top-10 ranked section (highlight cards + table) ──────
+    # ── Helper: render top-3 table + collapsible best-pick cards ───────────
     def _rank_section(title: str, metric_key: str, diff_key: str,
                       pct_col: str, ref_col: str, ref_label: str,
-                      ref_name: str, label_fn, detail_fn,
-                      expanded: bool = True) -> None:
+                      ref_name: str, expanded: bool = True) -> None:
         ranked_all = sorted(
             [d for d in valid if getattr(d, metric_key) is not None],
             key=lambda x: getattr(x, metric_key),
@@ -8455,23 +8424,48 @@ def _render_eff_table(data: list) -> None:
         if len(ranked_all) < 2:
             return
 
-        top10 = ranked_all[:10]
+        top3 = ranked_all[:3]
+        top2 = ranked_all[:2]
 
-        with st.expander(title, expanded=expanded):
+        # ── Top 3 table (shown directly, before Filter & Sort) ───────────────
+        st.markdown(f"**{title}**")
+        sug_rows = [
+            {
+                "Rank":           i + 1,
+                pct_col:          getattr(top3[i], metric_key),
+                "Symbol":         top3[i].symbol,
+                "Company Name":   top3[i].company_name or top3[i].symbol,
+                ref_label:        getattr(top3[i], ref_col),
+                "Current Price":  top3[i].current_price,
+            }
+            for i in range(len(top3))
+        ]
+        sdf = pd.DataFrame(sug_rows)
+        st.dataframe(
+            sdf, hide_index=True, width='stretch',
+            column_config={
+                "Rank":          st.column_config.NumberColumn("Rank",         format="%d",       width="small"),
+                pct_col:         st.column_config.NumberColumn(pct_col,        format="%+.2f%%",  width="small"),
+                "Symbol":        st.column_config.TextColumn("Symbol",         width="small"),
+                "Company Name":  st.column_config.TextColumn("Company Name",   width="large"),
+                ref_label:       st.column_config.NumberColumn(ref_label,      format="₹%.2f"),
+                "Current Price": st.column_config.NumberColumn("Current Price (₹)", format="₹%.2f"),
+            },
+        )
+
+        # ── Collapsible: highlight cards only (no table) ─────────────────────
+        with st.expander("💡 Best Value Pick Cards", expanded=expanded):
             st.markdown(
                 "<p style='color:gray;font-size:0.85rem;margin-bottom:0.8rem;'>"
-                "Top 10 symbols trading furthest <b>below</b> their reference price — "
+                "Top 2 symbols trading furthest <b>below</b> their reference price — "
                 "ranked by largest negative % gap (Rank 1 = best value pick). "
                 "Negative % = below reference · Positive % = above reference.</p>",
                 unsafe_allow_html=True,
             )
-
-            # ── Top-2 highlight cards (MUST BUY style) ────────────────────────
             highlight_colors = [
                 ("#16a34a", "#f0fdf4", "#052e16", "#14532d", "#bbf7d0", "#15803d", "#86efac"),
                 ("#2563eb", "#eff6ff", "#172554", "#1e3a5f", "#bfdbfe", "#1d4ed8", "#93c5fd"),
             ]
-            top2 = top10[:2]
             for i, d in enumerate(top2):
                 pct      = getattr(d, metric_key) or 0
                 ref_val  = getattr(d, ref_col)
@@ -8521,90 +8515,39 @@ def _render_eff_table(data: list) -> None:
 </div>
 """, unsafe_allow_html=True)
 
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # ── Summary table ─────────────────────────────────────────────────
-            sug_rows = [
-                {
-                    "Rank":           i + 1,
-                    pct_col:          getattr(top10[i], metric_key),
-                    "Symbol":         top10[i].symbol,
-                    "Company Name":   top10[i].company_name or top10[i].symbol,
-                    ref_label:        getattr(top10[i], ref_col),
-                    "Current Price":  top10[i].current_price,
-                }
-                for i in range(len(top10))
-            ]
-            sdf = pd.DataFrame(sug_rows)
-            st.dataframe(
-                sdf, hide_index=True, width='stretch',
-                column_config={
-                    "Rank":          st.column_config.NumberColumn("Rank",         format="%d",       width="small"),
-                    pct_col:         st.column_config.NumberColumn(pct_col,        format="%+.2f%%",  width="small"),
-                    "Symbol":        st.column_config.TextColumn("Symbol",         width="small"),
-                    "Company Name":  st.column_config.TextColumn("Company Name",   width="large"),
-                    ref_label:       st.column_config.NumberColumn(ref_label,      format="₹%.2f"),
-                    "Current Price": st.column_config.NumberColumn("Current Price (₹)", format="₹%.2f"),
-                },
-            )
-
     # ── Section 1: Ranked by % vs 52W Low ────────────────────────────────────
     _rank_section(
-        title="💡 Top 10 Suggestions — Best Value Picks (Most Below 52-Week Low)",
+        title="💡 Top 3 — Most Below 52-Week Low",
         metric_key="pct_vs_52w_low",
         diff_key="diff_52w_low",
         pct_col="% vs 52W Low",
         ref_col="week52_low",
         ref_label="52W Low (₹)",
         ref_name="52-Week Low",
-        label_fn=lambda d: (
-            f"Price ₹{d.current_price:,.2f}  ·  52W Low ₹{d.week52_low:,.2f}"
-            if d.current_price and d.week52_low else "—"
-        ),
-        detail_fn=lambda d: (
-            f"Diff {d.diff_52w_low:+.2f}  ·  {d.ref_date or '—'}"
-            if d.diff_52w_low is not None else "—"
-        ),
         expanded=True,
     )
 
     # ── Section 2: Ranked by % vs 3Y Avg ─────────────────────────────────────
     _rank_section(
-        title="💡 Top 10 Suggestions — Best Value Picks (Most Below 3-Year Average)",
+        title="💡 Top 3 — Most Below 3-Year Average",
         metric_key="pct_vs_3y",
         diff_key="diff_3y",
         pct_col="% vs 3Y Avg",
         ref_col="avg_price_3y",
         ref_label="3Y Avg (₹)",
         ref_name="3-Year Average",
-        label_fn=lambda d: (
-            f"Price ₹{d.current_price:,.2f}  ·  3Y Avg ₹{d.avg_price_3y:,.2f}"
-            if d.current_price and d.avg_price_3y else "—"
-        ),
-        detail_fn=lambda d: (
-            f"Diff {d.diff_3y:+.2f}  ·  {d.ref_date or '—'}"
-            if d.diff_3y is not None else "—"
-        ),
         expanded=False,
     )
 
     # ── Section 3: Ranked by % vs 5Y Avg ─────────────────────────────────────
     _rank_section(
-        title="💡 Top 10 Suggestions — Best Value Picks (Most Below 5-Year Average)",
+        title="💡 Top 3 — Most Below 5-Year Average",
         metric_key="pct_vs_5y",
         diff_key="diff_5y",
         pct_col="% vs 5Y Avg",
         ref_col="avg_price_5y",
         ref_label="5Y Avg (₹)",
         ref_name="5-Year Average",
-        label_fn=lambda d: (
-            f"Price ₹{d.current_price:,.2f}  ·  5Y Avg ₹{d.avg_price_5y:,.2f}"
-            if d.current_price and d.avg_price_5y else "—"
-        ),
-        detail_fn=lambda d: (
-            f"Diff {d.diff_5y:+.2f}  ·  {d.ref_date or '—'}"
-            if d.diff_5y is not None else "—"
-        ),
         expanded=False,
     )
 
@@ -8638,7 +8581,6 @@ def _render_eff_table(data: list) -> None:
         num_col = st.column_config.NumberColumn
         txt_col = st.column_config.TextColumn
 
-        # Export buttons
         ec1, ec2, *_ = st.columns([1, 1, 4])
         with ec1:
             st.download_button(
