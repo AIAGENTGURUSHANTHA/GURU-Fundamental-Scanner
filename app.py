@@ -442,7 +442,8 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
             ts    = r.get("lastUpdateTime", "") or ""
             # Try common field names for previous close
             pc_raw = (trade.get("previousPrice") or trade.get("previousClose")
-                      or order.get("previousClose") or r.get("previousPrice"))
+                      or order.get("previousClose") or r.get("previousPrice")
+                      or (r.get("priceInfo") or {}).get("previousClose"))
             try:
                 prev_c = round(float(str(pc_raw).replace(",", "")), 2) if pc_raw else None
             except Exception:
@@ -553,11 +554,16 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                         _pc = float(_hist["Close"].iloc[-2]) if len(_hist) >= 2 else None
                         out[sym] = {"price": _px, "time": "yfinance", "prev_close": _pc}
                     else:
-                        # Try fast_info as fallback
-                        _fi = _tk.fast_info
-                        _px = getattr(_fi, "last_price", None)
+                        # Try fast_info
+                        _fi  = _tk.fast_info
+                        _px  = getattr(_fi, "last_price", None)
+                        _fpc = getattr(_fi, "previous_close", None)
                         if _px:
-                            out[sym] = {"price": float(_px), "time": "yfinance", "prev_close": None}
+                            out[sym] = {
+                                "price":      float(_px),
+                                "time":       "yfinance",
+                                "prev_close": round(float(_fpc), 2) if _fpc else None,
+                            }
                 except Exception:
                     pass
         except Exception:
@@ -568,12 +574,30 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
     if _missing_pc:
         try:
             import yfinance as _yf
+            from datetime import date as _d_cls
             for sym in _missing_pc:
                 try:
-                    _tk   = _yf.Ticker(f"{sym}.NS")
+                    _tk = _yf.Ticker(f"{sym}.NS")
+                    # fast_info.previous_close is the most reliable: one light API call,
+                    # no date-arithmetic ambiguity about whether today's bar is included
+                    try:
+                        _fi  = _tk.fast_info
+                        _fpc = getattr(_fi, "previous_close", None)
+                        if _fpc and float(_fpc) > 0:
+                            out[sym]["prev_close"] = round(float(_fpc), 2)
+                            continue
+                    except Exception:
+                        pass
+                    # Fallback: daily history with correct bar-index logic
                     _hist = _tk.history(period="5d")
                     if not _hist.empty and len(_hist) >= 2:
-                        out[sym]["prev_close"] = round(float(_hist["Close"].iloc[-2]), 2)
+                        # If today's bar is NOT yet published (market open / weekend),
+                        # iloc[-1] is the most recent *completed* trading day = prev_close.
+                        # If today's bar IS in the history, iloc[-2] is prev_close.
+                        if _hist.index[-1].date() < _d_cls.today():
+                            out[sym]["prev_close"] = round(float(_hist["Close"].iloc[-1]), 2)
+                        else:
+                            out[sym]["prev_close"] = round(float(_hist["Close"].iloc[-2]), 2)
                 except Exception:
                     pass
         except Exception:
