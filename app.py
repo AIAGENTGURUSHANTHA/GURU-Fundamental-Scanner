@@ -416,17 +416,19 @@ def _live_btn(tab_prefix: str, refresh_key: str, btn_key: str) -> None:
 def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
     """
     Fetch live traded prices from NSE India only.
-    Four-layer approach (each fills in what the previous missed):
-      1a. GetQuoteApi series=EQ    (equity stocks)
-      1b. GetQuoteApi no series    (ETFs / other series)
-      2.  nsepython nse_eq()       (NSE equity-quote page — equities)
-      3.  NSE /api/etf             (bulk ETF endpoint — catches all ETF symbols)
-      4.  yfinance {sym}.NS        (last-resort for any still-missing symbols)
-    Returns {symbol: {"price": float, "time": str}}.
+    Five-layer approach — each layer runs in parallel across symbols:
+      1. GetQuoteApi series=EQ / no-series  (equity stocks)
+      2. nsepython nse_eq()                  (NSE equity-quote page)
+      3. NSE /api/etf                        (bulk ETF endpoint — single request)
+      4. yfinance {sym}.NS                   (last-resort for any still-missing)
+      5. yfinance prev_close top-up          (symbols with price but no prev_close)
+    Returns {symbol: {"price": float, "time": str, "prev_close": float|None}}.
     """
+    import threading
     out: dict = {}
+    _lock = threading.Lock()
 
-    # ── Layer 1: NSE GetQuoteApi (nseindia.com) ───────────────────────────────
+    # ── Layer 1: Parallel NSE GetQuoteApi ────────────────────────────────────
     try:
         from nsepython.rahu import _get_nse_session, headers as _nse_headers
         sess = _get_nse_session()
@@ -440,7 +442,6 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
             trade = r.get("tradeInfo", {}) or {}
             price = order.get("lastPrice") or trade.get("lastPrice")
             ts    = r.get("lastUpdateTime", "") or ""
-            # Try common field names for previous close
             pc_raw = (trade.get("previousPrice") or trade.get("previousClose")
                       or order.get("previousClose") or r.get("previousPrice")
                       or (r.get("priceInfo") or {}).get("previousClose"))
@@ -450,41 +451,43 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                 prev_c = None
             return price, ts, prev_c
 
-        for sym in symbols:
-            _got = False
+        def _l1_fetch(sym: str) -> None:
             for _url in (
                 f"https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
                 f"?functionName=getSymbolData&marketType=N&series=EQ&symbol={sym}",
                 f"https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
                 f"?functionName=getSymbolData&marketType=N&symbol={sym}",
             ):
-                if _got:
-                    break
                 try:
-                    resp = sess.get(_url, headers=_nse_headers, timeout=10)
+                    resp = sess.get(_url, headers=_nse_headers, timeout=8)
                     if resp.status_code == 200:
                         price, ts, prev_c = _parse_get_quote(resp.json())
                         if price is not None:
-                            out[sym] = {
-                                "price":      float(str(price).replace(",", "")),
-                                "time":       str(ts),
-                                "prev_close": prev_c,
-                            }
-                            _got = True
+                            with _lock:
+                                out[sym] = {
+                                    "price":      float(str(price).replace(",", "")),
+                                    "time":       str(ts),
+                                    "prev_close": prev_c,
+                                }
+                            return
                 except Exception:
                     pass
+
+        with ThreadPoolExecutor(max_workers=20) as _ex1:
+            list(_ex1.map(_l1_fetch, symbols))
     except ImportError:
         pass
 
-    # ── Layer 2: nsepython nse_eq() — NSE equity-quote page API ──────────────
-    _missing = [s for s in symbols if s not in out]
-    if _missing:
+    # ── Layer 2: Parallel nsepython nse_eq() ─────────────────────────────────
+    _missing2 = [s for s in symbols if s not in out]
+    if _missing2:
         try:
             import logging as _lg
             _lg.disable(_lg.WARNING)
             from nsepython import nse_eq as _nse_eq
             _lg.disable(_lg.NOTSET)
-            for sym in _missing:
+
+            def _l2_fetch(sym: str) -> None:
                 try:
                     _d  = _nse_eq(sym.upper())
                     _px = (
@@ -497,19 +500,23 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                             _pc = round(float(str(_pc_raw).replace(",", "")), 2) if _pc_raw else None
                         except Exception:
                             _pc = None
-                        out[sym] = {
-                            "price":      float(str(_px).replace(",", "")),
-                            "time":       _d.get("metadata", {}).get("lastUpdateTime", "nse_eq"),
-                            "prev_close": _pc,
-                        }
+                        with _lock:
+                            out[sym] = {
+                                "price":      float(str(_px).replace(",", "")),
+                                "time":       _d.get("metadata", {}).get("lastUpdateTime", "nse_eq"),
+                                "prev_close": _pc,
+                            }
                 except Exception:
                     pass
+
+            with ThreadPoolExecutor(max_workers=15) as _ex2:
+                list(_ex2.map(_l2_fetch, _missing2))
         except Exception:
             pass
 
-    # ── Layer 3: NSE /api/etf bulk endpoint — covers all ETF symbols ─────────
-    _missing = [s for s in symbols if s not in out]
-    if _missing:
+    # ── Layer 3: NSE /api/etf bulk endpoint (single request) ─────────────────
+    _missing3 = [s for s in symbols if s not in out]
+    if _missing3:
         try:
             from nsepython.rahu import _get_nse_session, headers as _nse_headers
             _sess3 = _get_nse_session()
@@ -518,9 +525,8 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                 headers=_nse_headers, timeout=12,
             )
             if _resp3.status_code == 200:
-                _etf_data = _resp3.json().get("data", [])
-                _etf_map  = {}
-                for _row in _etf_data:
+                _etf_map: dict = {}
+                for _row in _resp3.json().get("data", []):
                     _s = str(_row.get("symbol", "")).upper()
                     _p = _row.get("lastPrice") or _row.get("last")
                     if _s and _p is not None:
@@ -530,7 +536,7 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                         except Exception:
                             _pc = None
                         _etf_map[_s] = {"price": float(str(_p).replace(",", "")), "prev_close": _pc}
-                for sym in _missing:
+                for sym in _missing3:
                     if sym.upper() in _etf_map:
                         out[sym] = {
                             "price":      _etf_map[sym.upper()]["price"],
@@ -540,66 +546,75 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
         except Exception:
             pass
 
-    # ── Layer 4: yfinance {sym}.NS — last-resort fallback ────────────────────
-    _missing = [s for s in symbols if s not in out]
-    if _missing:
+    # ── Layer 4: Parallel yfinance — last-resort fallback ────────────────────
+    _missing4 = [s for s in symbols if s not in out]
+    if _missing4:
         try:
-            import yfinance as _yf
-            for sym in _missing:
+            import yfinance as _yf4
+            from datetime import date as _d4_cls
+
+            def _l4_fetch(sym: str) -> None:
                 try:
-                    _tk   = _yf.Ticker(f"{sym}.NS")
-                    _hist = _tk.history(period="5d")  # daily bars — last bar = current, second-last = prev close
+                    _tk   = _yf4.Ticker(f"{sym}.NS")
+                    _hist = _tk.history(period="5d")
                     if not _hist.empty:
                         _px = float(_hist["Close"].iloc[-1])
                         _pc = float(_hist["Close"].iloc[-2]) if len(_hist) >= 2 else None
-                        out[sym] = {"price": _px, "time": "yfinance", "prev_close": _pc}
+                        with _lock:
+                            out[sym] = {"price": _px, "time": "yfinance", "prev_close": _pc}
                     else:
-                        # Try fast_info
                         _fi  = _tk.fast_info
                         _px  = getattr(_fi, "last_price", None)
                         _fpc = getattr(_fi, "previous_close", None)
                         if _px:
-                            out[sym] = {
-                                "price":      float(_px),
-                                "time":       "yfinance",
-                                "prev_close": round(float(_fpc), 2) if _fpc else None,
-                            }
+                            with _lock:
+                                out[sym] = {
+                                    "price":      float(_px),
+                                    "time":       "yfinance",
+                                    "prev_close": round(float(_fpc), 2) if _fpc else None,
+                                }
                 except Exception:
                     pass
+
+            with ThreadPoolExecutor(max_workers=15) as _ex4:
+                list(_ex4.map(_l4_fetch, _missing4))
         except Exception:
             pass
 
-    # ── Layer 5: yfinance prev_close top-up — for any symbol with price but no prev_close ──
-    _missing_pc = [s for s in symbols if s in out and out[s].get("prev_close") is None]
-    if _missing_pc:
+    # ── Layer 5: Parallel prev_close top-up ──────────────────────────────────
+    _missing5 = [s for s in symbols if s in out and out[s].get("prev_close") is None]
+    if _missing5:
         try:
-            import yfinance as _yf
-            from datetime import date as _d_cls
-            for sym in _missing_pc:
+            import yfinance as _yf5
+            from datetime import date as _d5_cls
+
+            def _l5_fetch(sym: str) -> None:
                 try:
-                    _tk = _yf.Ticker(f"{sym}.NS")
-                    # fast_info.previous_close is the most reliable: one light API call,
-                    # no date-arithmetic ambiguity about whether today's bar is included
+                    _tk = _yf5.Ticker(f"{sym}.NS")
+                    # fast_info.previous_close: single lightweight call, no date guessing
                     try:
                         _fi  = _tk.fast_info
                         _fpc = getattr(_fi, "previous_close", None)
                         if _fpc and float(_fpc) > 0:
-                            out[sym]["prev_close"] = round(float(_fpc), 2)
-                            continue
+                            with _lock:
+                                out[sym]["prev_close"] = round(float(_fpc), 2)
+                            return
                     except Exception:
                         pass
                     # Fallback: daily history with correct bar-index logic
                     _hist = _tk.history(period="5d")
                     if not _hist.empty and len(_hist) >= 2:
-                        # If today's bar is NOT yet published (market open / weekend),
-                        # iloc[-1] is the most recent *completed* trading day = prev_close.
-                        # If today's bar IS in the history, iloc[-2] is prev_close.
-                        if _hist.index[-1].date() < _d_cls.today():
-                            out[sym]["prev_close"] = round(float(_hist["Close"].iloc[-1]), 2)
+                        if _hist.index[-1].date() < _d5_cls.today():
+                            _pc = round(float(_hist["Close"].iloc[-1]), 2)
                         else:
-                            out[sym]["prev_close"] = round(float(_hist["Close"].iloc[-2]), 2)
+                            _pc = round(float(_hist["Close"].iloc[-2]), 2)
+                        with _lock:
+                            out[sym]["prev_close"] = _pc
                 except Exception:
                     pass
+
+            with ThreadPoolExecutor(max_workers=15) as _ex5:
+                list(_ex5.map(_l5_fetch, _missing5))
         except Exception:
             pass
 
@@ -701,7 +716,7 @@ def _do_dma_fetch(symbols: list, scan_name: str, ref_date=None,
         done_count = [0]
         slot.markdown(_spinner_html(f"⏳ Fetching DMA for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        with ThreadPoolExecutor(max_workers=20) as ex:
             futures = {ex.submit(fetcher.fetch_dma, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
                 sym = futures[future]
@@ -833,7 +848,7 @@ def _do_ema_fetch(symbols: list, scan_name: str, ref_date=None,
         done_count = [0]
         slot.markdown(_spinner_html(f"⏳ Fetching EMA for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        with ThreadPoolExecutor(max_workers=20) as ex:
             futures = {ex.submit(fetcher.fetch_ema, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
                 sym = futures[future]
@@ -963,7 +978,7 @@ def _do_guru_buy_fetch(symbols: list, scan_name: str, ref_date=None,
         results_map: dict = {}
         done_count = [0]
         slot.markdown(_spinner_html(f"⏳ Calculating GURU BUY for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        with ThreadPoolExecutor(max_workers=20) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
                 sym = futures[future]
@@ -1117,7 +1132,7 @@ def _do_dd_fetch(symbols: list, scan_name: str, ref_date=None,
         done_count = [0]
         slot.markdown(_spinner_html(f"⏳ Fetching 20 DMA from NSE India for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
-        with ThreadPoolExecutor(max_workers=10) as ex:
+        with ThreadPoolExecutor(max_workers=20) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
                 sym = futures[future]
@@ -1245,7 +1260,7 @@ def _do_smc_fetch(symbols: list, scan_name: str, ref_date=None,
         results_map: dict = {}
         done_count = [0]
         slot.markdown(_spinner_html(f"⏳ Calculating SMC zones for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        with ThreadPoolExecutor(max_workers=20) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
                 sym = futures[future]
@@ -1394,7 +1409,7 @@ def _do_ll_etf_fetch(symbols: list, scan_name: str, ref_date=None,
         done_count = [0]
         slot.markdown(_spinner_html(f"⏳ Fetching Life Long ETF data for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
-        with ThreadPoolExecutor(max_workers=8) as ex:
+        with ThreadPoolExecutor(max_workers=20) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
                 sym = futures[future]
@@ -1554,7 +1569,7 @@ def _do_eff_fetch(symbols: list, scan_name: str, ref_date=None,
         done_count = [0]
         slot.markdown(_spinner_html(f"⏳ Fetching Eshwarana Fruit Forest data for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
 
-        with ThreadPoolExecutor(max_workers=8) as ex:
+        with ThreadPoolExecutor(max_workers=20) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
                 sym = futures[future]
@@ -1695,7 +1710,7 @@ def _do_etf_ema_fetch(symbols: list, scan_name: str, ref_date=None,
         results_map: dict = {}
         done_count = [0]
         slot.markdown(_spinner_html(f"⏳ Calculating EMA for {len(symbols)} ETF(s)…  0 / {len(symbols)}"), unsafe_allow_html=True)
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        with ThreadPoolExecutor(max_workers=20) as ex:
             futures = {
                 ex.submit(fetcher.fetch_ema, sym, ref_date,
                           scheme_map.get(sym, "")): sym
@@ -6683,7 +6698,7 @@ def _do_rsi_fetch(prefix: str, symbols: list, scan_name: str,
     else:
         results_map: dict = {}
         slot.markdown(_spinner_html(f"⏳ Calculating RSI for {len(symbols)} symbols…  0 / {len(symbols)}"), unsafe_allow_html=True)
-        with ThreadPoolExecutor(max_workers=8) as ex:
+        with ThreadPoolExecutor(max_workers=20) as ex:
             futures = {ex.submit(fetcher.fetch, sym, ref_date): sym for sym in symbols}
             for future in as_completed(futures):
                 sym = futures[future]
