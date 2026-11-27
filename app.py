@@ -1442,6 +1442,14 @@ def _load_eff_session(s: dict) -> None:
     st.session_state.eff_last_scan_symbols = [r.symbol for r in results]
 
 
+def _load_tt_session(s: dict) -> None:
+    raw = json.loads(s["results_json"])
+    st.session_state.tt_data              = raw
+    st.session_state.tt_active_scan_name  = s["scan_name"]
+    st.session_state.tt_last_fetched_at   = None
+    st.session_state.tt_last_scan_symbols = [r.get("symbol", "") for r in raw]
+
+
 def _do_eff_fetch(symbols: list, scan_name: str, ref_date=None,
                   save_to_history: bool = False) -> None:
     """Fetch Eshwarana Fruit Forest data (52W Low, 3Y Avg, 5Y Avg) in parallel."""
@@ -2549,8 +2557,8 @@ def _render_table(stock_list: list):
 
     st.markdown("---")
 
-    # Results header: title + fetched timestamp + refresh button
-    h1, h2, h3 = st.columns([4, 3, 1])
+    # Results header: title + fetched timestamp + save + refresh button
+    h1, h2, h3, h4 = st.columns([3, 2, 1, 1])
     with h1:
         st.markdown(f"### 📊 Results — {len(df)} stock(s)")
     with h2:
@@ -2561,6 +2569,15 @@ def _render_table(stock_list: list):
                 unsafe_allow_html=True,
             )
     with h3:
+        if st.button("💾 Save", key="save_fund_table", use_container_width=True,
+                     help="Save current results to your account"):
+            if st.session_state.get("stock_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get("active_scan_name") or "Saved"
+                _d = [r.model_dump() for r in st.session_state.stock_data]
+                _save_scan(_u, _n, _d, scan_type="fundamentals")
+                st.toast("✅ Saved!", icon="💾")
+    with h4:
         if st.button("🔄 Refresh", key="refresh_table", use_container_width=True, type="primary",
                      help="Clear cache and re-fetch latest data from screener.in"):
             for s in stock_list:
@@ -3460,7 +3477,7 @@ def _render_dma_table(dma_list: list):
     st.markdown("---")
 
     # Results header
-    h1, h2, h3, h4 = st.columns([3, 2, 1, 1])
+    h1, h2, h3, h4, h5 = st.columns([2, 2, 1, 1, 1])
     with h1:
         st.markdown(f"### 📊 DMA Results — {len(df)} stock(s)")
     with h2:
@@ -3474,11 +3491,20 @@ def _render_dma_table(dma_list: list):
                 unsafe_allow_html=True,
             )
     with h3:
+        if st.button("💾 Save", key="save_dma_table", width='stretch',
+                     help="Save current results to your account"):
+            if st.session_state.get("dma_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get("dma_active_scan_name") or "Saved"
+                _d = [r.model_dump() for r in st.session_state.dma_data]
+                _save_scan(_u, _n, _d, scan_type="dma")
+                st.toast("✅ Saved!", icon="💾")
+    with h4:
         if st.button("🔄 Refresh", key="dma_refresh_table", width='stretch', type="primary",
                      help="Re-fetch latest data from NSE"):
             st.session_state.dma_do_refresh = True
             st.rerun()
-    with h4:
+    with h5:
         _live_btn("dma", "dma_do_refresh", "dma_live_table")
 
     # Summary row
@@ -3860,7 +3886,7 @@ def _render_ema_table(ema_list: list):
     df = pd.DataFrame(rows)
     st.markdown("---")
 
-    h1, h2, h3, h4 = st.columns([3, 2, 1, 1])
+    h1, h2, h3, h4, h5 = st.columns([2, 2, 1, 1, 1])
     with h1:
         st.markdown(f"### 📈 EMA Results — {len(df)} stock(s)")
     with h2:
@@ -3874,10 +3900,19 @@ def _render_ema_table(ema_list: list):
                 unsafe_allow_html=True,
             )
     with h3:
+        if st.button("💾 Save", key="save_ema_table", width='stretch',
+                     help="Save current results to your account"):
+            if st.session_state.get("ema_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get("ema_active_scan_name") or "Saved"
+                _d = [r.model_dump() for r in st.session_state.ema_data]
+                _save_scan(_u, _n, _d, scan_type="ema")
+                st.toast("✅ Saved!", icon="💾")
+    with h4:
         if st.button("🔄 Refresh", key="ema_refresh_table", width='stretch', type="primary"):
             st.session_state.ema_do_refresh = True
             st.rerun()
-    with h4:
+    with h5:
         _live_btn("ema", "ema_do_refresh", "ema_live_table")
 
     retrieved = df["Price (₹)"].notna().sum()
@@ -4358,7 +4393,7 @@ def _render_guru_buy_table(guru_list: list):
     df = pd.DataFrame(rows)
     st.markdown("---")
 
-    h1, h2, h3, h4 = st.columns([3, 2, 1, 1])
+    h1, h2, h3, h4, h5 = st.columns([2, 2, 1, 1, 1])
     with h1:
         st.markdown(f"### 🟢 GURU BUY Results — {len(df)} stock(s)")
     with h2:
@@ -4372,10 +4407,19 @@ def _render_guru_buy_table(guru_list: list):
                 unsafe_allow_html=True,
             )
     with h3:
+        if st.button("💾 Save", key="save_guru_table", width='stretch',
+                     help="Save current results to your account"):
+            if st.session_state.get("guru_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get("guru_active_scan_name") or "Saved"
+                _d = [r.model_dump() for r in st.session_state.guru_data]
+                _save_scan(_u, _n, _d, scan_type="guru_buy")
+                st.toast("✅ Saved!", icon="💾")
+    with h4:
         if st.button("🔄 Refresh", key="guru_refresh_tbl", width='stretch', type="primary"):
             st.session_state.guru_do_refresh = True
             st.rerun()
-    with h4:
+    with h5:
         _live_btn("guru", "guru_do_refresh", "guru_live_table")
 
     # Summary
@@ -4911,7 +4955,7 @@ def _render_smc_table(smc_list: list):
 
     st.markdown("---")
 
-    h1, h2, h3, h4 = st.columns([3, 2, 1, 1])
+    h1, h2, h3, h4, h5 = st.columns([2, 2, 1, 1, 1])
     with h1:
         st.markdown(f"### 💹 SMC Zone Results — {len(df)} stock(s)")
     with h2:
@@ -4925,10 +4969,19 @@ def _render_smc_table(smc_list: list):
                 unsafe_allow_html=True,
             )
     with h3:
+        if st.button("💾 Save", key="save_smc_table", width='stretch',
+                     help="Save current results to your account"):
+            if st.session_state.get("smc_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get("smc_active_scan_name") or "Saved"
+                _d = [r.model_dump() for r in st.session_state.smc_data]
+                _save_scan(_u, _n, _d, scan_type="smc")
+                st.toast("✅ Saved!", icon="💾")
+    with h4:
         if st.button("🔄 Refresh", key="smc_refresh_tbl", width='stretch', type="primary"):
             st.session_state.smc_do_refresh = True
             st.rerun()
-    with h4:
+    with h5:
         _live_btn("smc", "smc_do_refresh", "smc_live_table")
 
     # Summary metrics
@@ -6740,14 +6793,24 @@ def _render_rsi_tab(prefix: str, label: str, sample_syms: list) -> None:
     if fetched_at:
         c4.metric("Last Fetched", _fmt_ts(fetched_at))
 
-    rb1, rb2, rb3 = st.columns([1, 1, 4])
+    rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
     with rb1:
+        if st.button("💾 Save", width='stretch', key=f"{prefix}_save_btn",
+                     help="Save current results to your account"):
+            if st.session_state.get(f"{prefix}_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get(f"{prefix}_active_scan_name") or "Saved"
+                _st = "rsi_stock" if prefix == "rsi_stock" else "rsi_etf"
+                _d = [r.model_dump() for r in st.session_state[f"{prefix}_data"]]
+                _save_scan(_u, _n, _d, scan_type=_st)
+                st.toast("✅ Saved!", icon="💾")
+    with rb2:
         if st.button("🔄 Refresh", width='stretch', key=f"{prefix}_refresh_btn"):
             st.session_state[f"{prefix}_do_refresh"] = True
             st.rerun()
-    with rb2:
-        _live_btn(prefix, f"{prefix}_do_refresh", f"{prefix}_live_btn")
     with rb3:
+        _live_btn(prefix, f"{prefix}_do_refresh", f"{prefix}_live_btn")
+    with rb4:
         if _is_market_open():
             st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
         else:
@@ -7234,6 +7297,8 @@ def render_turtle_trading():
         unsafe_allow_html=True,
     )
 
+    _auto_restore_scan("tt_data", _load_tt_session, "turtle_trading")
+
     # ── Reference date ────────────────────────────────────────────────────────
     today = _date.today()
     dcol1, dcol2 = st.columns([2, 5])
@@ -7328,12 +7393,21 @@ def render_turtle_trading():
     if fetched_at:
         c4.metric("Last Fetched", _fmt_ts(fetched_at))
 
-    rb1, rb2 = st.columns([1, 5])
+    rb1, rb2, rb3 = st.columns([1, 1, 4])
     with rb1:
+        if st.button("💾 Save", width='stretch', key="save_tt_btn",
+                     help="Save current results to your account"):
+            if st.session_state.get("tt_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get("tt_active_scan_name") or "Saved"
+                _d = list(st.session_state.tt_data)
+                _save_scan(_u, _n, _d, scan_type="turtle_trading")
+                st.toast("✅ Saved!", icon="💾")
+    with rb2:
         if st.button("🔄 Refresh", width='stretch', key="tt_refresh_btn"):
             st.session_state.tt_do_refresh = True
             st.rerun()
-    with rb2:
+    with rb3:
         if _is_market_open():
             st.success("🟢 **MARKET OPEN**")
         else:
@@ -7541,14 +7615,23 @@ def _render_daily_dukaan():
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
 
     # Refresh + Live buttons + market status badge
-    rb1, rb2, rb3 = st.columns([1, 1, 4])
+    rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
     with rb1:
+        if st.button("💾 Save", use_container_width=True, key="save_dd_btn",
+                     help="Save current results to your account"):
+            if st.session_state.get("dd_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get("dd_active_scan_name") or "Saved"
+                _d = [r.model_dump() for r in st.session_state.dd_data]
+                _save_scan(_u, _n, _d, scan_type="daily_dukaan")
+                st.toast("✅ Saved!", icon="💾")
+    with rb2:
         if st.button("🔄 Refresh", use_container_width=True, key="dd_refresh_btn"):
             st.session_state.dd_do_refresh = True
             st.rerun()
-    with rb2:
-        _live_btn("dd", "dd_do_refresh", "dd_live_btn")
     with rb3:
+        _live_btn("dd", "dd_do_refresh", "dd_live_btn")
+    with rb4:
         if _is_market_open():
             st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
         else:
@@ -7925,14 +8008,23 @@ def _render_ll_etf():
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
 
     # Refresh + Live buttons
-    rb1, rb2, rb3 = st.columns([1, 1, 4])
+    rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
     with rb1:
+        if st.button("💾 Save", width='stretch', key="save_ll_etf_btn",
+                     help="Save current results to your account"):
+            if st.session_state.get("ll_etf_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get("ll_etf_active_scan_name") or "Saved"
+                _d = [r.model_dump() for r in st.session_state.ll_etf_data]
+                _save_scan(_u, _n, _d, scan_type="ll_etf")
+                st.toast("✅ Saved!", icon="💾")
+    with rb2:
         if st.button("🔄 Refresh", width='stretch', key="ll_etf_refresh_btn"):
             st.session_state.ll_etf_do_refresh = True
             st.rerun()
-    with rb2:
-        _live_btn("ll_etf", "ll_etf_do_refresh", "ll_etf_live_btn")
     with rb3:
+        _live_btn("ll_etf", "ll_etf_do_refresh", "ll_etf_live_btn")
+    with rb4:
         if _is_market_open():
             st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
         else:
@@ -8320,14 +8412,23 @@ def _render_eff():
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
 
     # Refresh + Live buttons
-    rb1, rb2, rb3 = st.columns([1, 1, 4])
+    rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
     with rb1:
+        if st.button("💾 Save", width='stretch', key="save_eff_btn",
+                     help="Save current results to your account"):
+            if st.session_state.get("eff_data") and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get("eff_active_scan_name") or "Saved"
+                _d = [r.model_dump() for r in st.session_state.eff_data]
+                _save_scan(_u, _n, _d, scan_type="eff")
+                st.toast("✅ Saved!", icon="💾")
+    with rb2:
         if st.button("🔄 Refresh", width='stretch', key="eff_refresh_btn"):
             st.session_state.eff_do_refresh = True
             st.rerun()
-    with rb2:
-        _live_btn("eff", "eff_do_refresh", "eff_live_btn")
     with rb3:
+        _live_btn("eff", "eff_do_refresh", "eff_live_btn")
+    with rb4:
         if _is_market_open():
             st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
         else:
