@@ -1504,7 +1504,137 @@ def _load_tt_session(s: dict) -> None:
     st.session_state.tt_last_scan_symbols = [r.get("symbol", "") for r in raw]
 
 
-def _load_bps_stock_session(s: dict) -> None:
+def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
+    """Fetch 55D High, 20D Low, company name for one symbol via yfinance."""
+    result = {
+        "symbol":        symbol,
+        "company_name":  symbol,
+        "current_price": None,
+        "day55_high":    None,
+        "day20_low":     None,
+        "diff_pct":      None,
+        "gtt_trigger":   None,
+        "error":         None,
+    }
+    try:
+        import yfinance as _yf
+        t = _yf.Ticker(f"{symbol}.NS")
+        # ~90 calendar days covers 63 trading days — enough for 55D window
+        hist = t.history(period="90d", interval="1d", auto_adjust=True)
+        if hist.empty:
+            result["error"] = "No data from Yahoo Finance"
+            return result
+        # Company name
+        try:
+            fi = t.fast_info
+            for _attr in ("long_name", "longName", "short_name", "shortName"):
+                _val = getattr(fi, _attr, None)
+                if _val:
+                    result["company_name"] = str(_val)
+                    break
+        except Exception:
+            pass
+        # Clip to ref_date if provided
+        if ref_date:
+            from datetime import date as _date
+            hist = hist[hist.index.date <= (ref_date if isinstance(ref_date, _date) else _date.fromisoformat(str(ref_date)))]
+        if hist.empty:
+            result["error"] = "No data for selected date"
+            return result
+        # Current price = most recent close
+        result["current_price"] = round(float(hist["Close"].iloc[-1]), 2)
+        # 55-day High (use daily High bars, last 55 rows)
+        h55 = hist.tail(55)
+        if not h55.empty:
+            result["day55_high"] = round(float(h55["High"].max()), 2)
+        # 20-day Low (use daily Low bars, last 20 rows)
+        h20 = hist.tail(20)
+        if not h20.empty:
+            result["day20_low"] = round(float(h20["Low"].min()), 2)
+        # % diff = how far current price is BELOW the 55D high (positive = below, negative = above/breakout)
+        cp  = result["current_price"]
+        h55 = result["day55_high"]
+        if cp and h55:
+            result["diff_pct"] = round((h55 - cp) / cp * 100, 2)
+            if result["diff_pct"] > 10:
+                result["gtt_trigger"] = h55   # BUY GTT at the 55D high breakout level
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
+def _do_tt_fetch(symbols: list, scan_name: str, ref_date=None,
+                 save_to_history: bool = False) -> None:
+    """Fetch Turtle Trading metrics for all symbols, then enrich with NSE live price."""
+    slot = st.empty()
+    if len(symbols) == 1:
+        slot.markdown(_spinner_html(f"⏳ Fetching Turtle Trading data for <b>{symbols[0]}</b>…"),
+                      unsafe_allow_html=True)
+        results = [_fetch_tt_single(symbols[0], ref_date)]
+        slot.empty()
+    else:
+        results_map: dict = {}
+        done_count = [0]
+        slot.markdown(
+            _spinner_html(f"⏳ Fetching Turtle Trading data for {len(symbols)} symbols…  0 / {len(symbols)}"),
+            unsafe_allow_html=True,
+        )
+        with ThreadPoolExecutor(max_workers=20) as ex:
+            futures = {ex.submit(_fetch_tt_single, sym, ref_date): sym for sym in symbols}
+            for future in as_completed(futures):
+                sym = futures[future]
+                try:
+                    results_map[sym] = future.result(timeout=120)
+                except Exception as exc:
+                    results_map[sym] = {"symbol": sym, "error": str(exc)}
+                done_count[0] += 1
+                slot.markdown(
+                    _spinner_html(f"⏳ Fetching Turtle Trading data…  {done_count[0]} / {len(symbols)}"),
+                    unsafe_allow_html=True,
+                )
+        slot.empty()
+        results = [results_map.get(s, {"symbol": s, "error": "Not fetched"}) for s in symbols]
+
+    # NSE live price enrichment
+    nse_slot = st.empty()
+    market_open = _is_market_open()
+    nse_slot.markdown(
+        _spinner_html("📡 Fetching live NSE prices…" if market_open else "📡 Fetching latest NSE prices…"),
+        unsafe_allow_html=True,
+    )
+    try:
+        valid_syms = [r["symbol"] for r in results if not r.get("error")]
+        live_px = _fetch_nse_live_prices_bulk(valid_syms)
+        for r in results:
+            lp = live_px.get(r["symbol"])
+            if lp and not r.get("error"):
+                r["current_price"] = round(lp["price"], 2)
+                # Recalculate diff and GTT with fresh live price
+                h55 = r.get("day55_high")
+                cp  = r["current_price"]
+                if h55 and cp:
+                    r["diff_pct"]    = round((h55 - cp) / cp * 100, 2)
+                    r["gtt_trigger"] = h55 if r["diff_pct"] > 10 else None
+    except Exception:
+        pass
+    nse_slot.empty()
+
+    # Sort: GTT signals first (diff_pct > 10, ascending), then rest
+    _INF = float("inf")
+    results.sort(key=lambda d: (
+        0 if (d.get("diff_pct") is not None and d["diff_pct"] > 10) else 1,
+        d.get("diff_pct") if d.get("diff_pct") is not None else _INF,
+    ))
+
+    st.session_state.tt_data              = results
+    st.session_state.tt_last_fetched_at   = _now_ist()
+    st.session_state.tt_last_scan_symbols = symbols
+    st.session_state.tt_active_scan_name  = scan_name
+
+    if save_to_history and st.session_state.get("user"):
+        _save_scan(st.session_state.user["phone_number"], scan_name, results, scan_type="turtle_trading")
+
+
     raw = json.loads(s["results_json"])
     st.session_state.bps_stock_data              = raw
     st.session_state.bps_stock_active_scan_name  = s["scan_name"]
@@ -7582,7 +7712,7 @@ def render_turtle_trading():
     st.markdown("## 🐢 Turtle Trading")
     st.markdown(
         "<p style='color:gray;font-size:0.9rem;margin-bottom:0.5rem;'>"
-        "Turtle Trading strategy screener · Enter symbols to analyse · Calculation columns coming soon</p>",
+        "55-Day High breakout screener · BUY GTT signal when current price is &gt;10% below 55D High</p>",
         unsafe_allow_html=True,
     )
 
@@ -7592,7 +7722,7 @@ def render_turtle_trading():
     today = _date.today()
     dcol1, dcol2 = st.columns([2, 5])
     with dcol1:
-        saved_date  = st.session_state.get("tt_ref_date") or today
+        saved_date   = st.session_state.get("tt_ref_date") or today
         ref_date_val = st.date_input(
             "Reference Date",
             value=saved_date,
@@ -7627,7 +7757,7 @@ def render_turtle_trading():
         with c1:
             scan_btn = st.button("🔍 Scan", type="primary", width='stretch', key="tt_scan_m")
         with c2:
-            st.caption("Use NSE symbols. Data fetched from NSE India.")
+            st.caption("Use NSE symbols (stocks or ETFs). Data fetched from NSE India.")
         if scan_btn and txt.strip():
             st.session_state["_tt_pending_scan_name"] = f"Turtle Trading — {_now_ist().strftime('%d %b %H:%M')}"
             symbols = _parser.parse_text_input(txt)
@@ -7652,22 +7782,22 @@ def render_turtle_trading():
             if not symbols:
                 st.warning("⚠️ No valid symbols found in file.")
 
-    # ── Fetch (placeholder — columns will be added when logic is provided) ────
+    # ── Scan ──────────────────────────────────────────────────────────────────
     if symbols:
         scan_name = st.session_state.pop("_tt_pending_scan_name", "Turtle Trading")
-        st.session_state["tt_last_scan_symbols"] = symbols
-        st.session_state["tt_active_scan_name"]  = scan_name
-        st.session_state["tt_last_fetched_at"]   = datetime.now()
-        # Store raw symbol list as placeholder data until calculation logic is added
-        st.session_state["tt_data"] = [{"symbol": s} for s in symbols]
+        _do_tt_fetch(symbols, scan_name, ref_date=ref_date_val, save_to_history=True)
+        st.rerun()
 
     # ── Refresh ───────────────────────────────────────────────────────────────
     if st.session_state.get("tt_do_refresh"):
         st.session_state.tt_do_refresh = False
         syms = st.session_state.get("tt_last_scan_symbols", [])
+        if not syms:
+            syms = [d.get("symbol", "") for d in st.session_state.get("tt_data", []) if d.get("symbol")]
         if syms:
-            st.session_state["tt_data"]          = [{"symbol": s} for s in syms]
-            st.session_state["tt_last_fetched_at"] = datetime.now()
+            scan_name = st.session_state.get("tt_active_scan_name") or "Turtle Trading Refresh"
+            _do_tt_fetch(syms, scan_name, ref_date=ref_date_val, save_to_history=True)
+            st.rerun()
 
     # ── Results ───────────────────────────────────────────────────────────────
     data = st.session_state.get("tt_data", [])
@@ -7675,62 +7805,123 @@ def render_turtle_trading():
         return
 
     fetched_at = st.session_state.get("tt_last_fetched_at")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Symbols Loaded", len(data))
-    c2.metric("Reference Date", str(ref_date_val))
-    c3.metric("Status", "Ready")
-    if fetched_at:
-        c4.metric("Last Fetched", _fmt_ts(fetched_at))
+    valid      = [d for d in data if not d.get("error") and d.get("current_price")]
+    gtt_count  = sum(1 for d in valid if d.get("gtt_trigger") is not None)
 
-    rb1, rb2, rb3 = st.columns([1, 1, 4])
+    # Data Source card
+    _tt_sn = st.session_state.get("tt_active_scan_name", "")
+    _tt_sn_d = _tt_sn.rsplit(".", 1)[0] if _tt_sn and "." in _tt_sn else _tt_sn
+    if _tt_sn_d:
+        _tsc1, _ = st.columns([1, 2])
+        _tsc1.metric("📁 Data Source", _tt_sn_d)
+
+    # Summary metric cards
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric("Symbols Scanned", len(data))
+    mc2.metric("Loaded OK",        len(valid))
+    mc3.metric("🎯 GTT Signals",   gtt_count)
+    if fetched_at:
+        mc4.metric("Last Fetched", _fmt_ts(fetched_at))
+
+    # Save / Refresh / Live / Market status row
+    rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
     with rb1:
         if st.button("💾 Save", width='stretch', key="save_tt_btn",
                      help="Save current results to your account"):
             if st.session_state.get("tt_data") and st.session_state.get("user"):
                 _u = st.session_state.user["phone_number"]
                 _n = st.session_state.get("tt_active_scan_name") or "Saved"
-                _d = list(st.session_state.tt_data)
-                _save_scan(_u, _n, _d, scan_type="turtle_trading")
+                _save_scan(_u, _n, list(st.session_state.tt_data), scan_type="turtle_trading")
                 st.toast("✅ Saved!", icon="💾")
     with rb2:
         if st.button("🔄 Refresh", width='stretch', key="tt_refresh_btn"):
             st.session_state.tt_do_refresh = True
             st.rerun()
     with rb3:
-        if _is_market_open():
-            st.success("🟢 **MARKET OPEN**")
+        _live_btn("tt", "tt_do_refresh", "tt_live_btn")
+    with rb4:
+        _mkt = _is_market_open()
+        if _mkt:
+            st.success("🟢 **MARKET OPEN** — Live prices active")
         else:
-            st.info("⏸ Market closed — showing latest available prices.")
+            from datetime import datetime as _dt
+            _now_s = _dt.now().strftime("%d %b %Y, %I:%M %p IST")
+            st.info(f"⏸ Market closed ({_now_s}). Live / Refresh fetches the latest official NSE close price.")
 
     st.markdown("---")
 
-    # ── Table (placeholder columns — calculation fields to be added) ──────────
-    dark = st.session_state.get("dark_mode", False)
-    hdr_bg  = "#1e2130" if dark else "#f1f5f9"
-    hdr_col = "#94a3b8" if dark else "#475569"
-    st.markdown(
-        f"<div style='background:{hdr_bg};border-radius:0.5rem;padding:0.6rem 1rem;"
-        f"color:{hdr_col};font-size:0.8rem;font-weight:600;margin-bottom:0.5rem;'>"
-        f"⚙️ &nbsp; Calculation columns will be added here — "
-        f"{len(data)} symbol(s) ready for analysis</div>",
-        unsafe_allow_html=True,
-    )
+    # ── Main table ────────────────────────────────────────────────────────────
+    if not valid:
+        st.warning("⚠️ No data loaded yet. Click **🔄 Refresh** to fetch.")
+        return
 
-    df = pd.DataFrame(data)
-    st.dataframe(df, width='stretch', hide_index=True)
+    rows = []
+    for d in data:
+        cp    = d.get("current_price")
+        h55   = d.get("day55_high")
+        l20   = d.get("day20_low")
+        diff  = d.get("diff_pct")
+        gtt   = d.get("gtt_trigger")
+        rows.append({
+            "Symbol":        d.get("symbol", ""),
+            "Company Name":  d.get("company_name") or d.get("symbol", ""),
+            "Current Price": cp   if cp   is not None else float("nan"),
+            "55D High":      h55  if h55  is not None else float("nan"),
+            "20D Low":       l20  if l20  is not None else float("nan"),
+            "% Below 55D High": diff if diff is not None else float("nan"),
+            "GTT Trigger (BUY)": gtt if gtt  is not None else float("nan"),
+        })
+
+    tdf = pd.DataFrame(rows)
+    for _c in ["Current Price", "55D High", "20D Low", "% Below 55D High", "GTT Trigger (BUY)"]:
+        if _c in tdf.columns:
+            tdf[_c] = pd.to_numeric(tdf[_c], errors="coerce")
+
+    def _color_diff(col):
+        styles = []
+        for v in col:
+            if pd.isna(v):
+                styles.append("")
+            elif v <= 0:
+                styles.append("color: #16a34a; font-weight: 700")   # green — at/above 55D high
+            elif v <= 10:
+                styles.append("color: #d97706; font-weight: 700")   # amber — within 10%
+            else:
+                styles.append("color: #dc2626; font-weight: 700")   # red — >10% below, GTT zone
+        return styles
+
+    def _color_gtt(col):
+        return [
+            "background-color: #dcfce7; color: #15803d; font-weight: 700" if pd.notna(v) else ""
+            for v in col
+        ]
+
+    styled = (
+        tdf.style
+        .format({
+            "Current Price":        lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
+            "55D High":             lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
+            "20D Low":              lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
+            "% Below 55D High":     lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
+            "GTT Trigger (BUY)":    lambda v: f"BUY @ ₹{v:,.2f}" if pd.notna(v) else "—",
+        }, na_rep="—")
+        .apply(_color_diff, subset=["% Below 55D High"])
+        .apply(_color_gtt,  subset=["GTT Trigger (BUY)"])
+    )
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 
     # ── Export ────────────────────────────────────────────────────────────────
     ec1, ec2 = st.columns([1, 1])
     with ec1:
         st.download_button(
-            "📥 CSV", df.to_csv(index=False).encode(),
+            "📥 CSV", tdf.to_csv(index=False).encode(),
             f"turtle_trading_{ref_date_val}.csv", "text/csv", key="tt_csv_dl",
         )
     with ec2:
         try:
             import io as _io
             _buf = _io.BytesIO()
-            df.to_excel(_buf, index=False)
+            tdf.to_excel(_buf, index=False)
             st.download_button(
                 "📥 Excel", _buf.getvalue(),
                 f"turtle_trading_{ref_date_val}.xlsx",
