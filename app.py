@@ -5189,10 +5189,12 @@ def _group_open_buys(open_entries: list, live_prices: dict) -> list:
     return result
 
 
-def _portfolio_metrics_html(buy_cnt, open_cnt, sell_cnt, total_invested,
-                             virt_pnl, virt_priced, total_booked, dark: bool) -> str:
+def _portfolio_metrics_html(buy_cnt, sell_cnt, total_invested,
+                             virt_pnl, virt_priced, total_booked,
+                             cur_price, price_ts, net_qty, sold_qty, dark: bool) -> str:
     """Render the metric strip as a flex row of beautiful cards.
-    Shows an orange Profit Alert card when unrealised gain > ₹1,000."""
+    Shows an orange Profit Alert card when unrealised gain > ₹1,000.
+    Shows a purple Qty-to-Book card only when Profit Alert is visible."""
     card_bg  = "#1e2130" if dark else "#ffffff"
     card_bdr = "rgba(255,255,255,0.08)" if dark else "#e2e8f0"
     lbl_c    = "#94a3b8" if dark else "#64748b"
@@ -5206,19 +5208,44 @@ def _portfolio_metrics_html(buy_cnt, open_cnt, sell_cnt, total_invested,
     vpnl_str = f"₹{virt_pnl:+,.2f}" if virt_priced > 0 else "—"
     bkd_str  = f"₹{total_booked:+,.2f}" if sell_cnt > 0 else "₹0.00"
 
-    def card(label, value, vc=None, extra=""):
+    def card(label, value, vc=None, sub="", extra=""):
         vc = vc or val_c
+        sub_html = (f'<div style="font-size:0.6rem;color:{lbl_c};margin-top:3px;">{sub}</div>'
+                    if sub else "")
         return (
             f'<div style="background:{card_bg};border:1px solid {card_bdr};border-radius:12px;'
             f'padding:0.9rem 1rem;text-align:center;flex:1;min-width:110px;{extra}">'
             f'<div style="font-size:0.65rem;font-weight:600;text-transform:uppercase;'
             f'letter-spacing:0.07em;color:{lbl_c};margin-bottom:5px;">{label}</div>'
             f'<div style="font-size:1.5rem;font-weight:800;color:{vc};line-height:1.1;">{value}</div>'
+            + sub_html +
             f'</div>'
         )
 
+    # Current price card
+    price_card = ""
+    if cur_price and cur_price > 0:
+        ts_str = ""
+        if price_ts:
+            try:
+                ts_str = price_ts.strftime("%d-%b %H:%M")
+            except Exception:
+                ts_str = str(price_ts)[:16]
+        price_card = card("Live Price", f"₹{cur_price:,.2f}",
+                          vc=("#38bdf8" if dark else "#0369a1"),
+                          sub=ts_str)
+
+    # Net qty / sold qty card
+    qty_card = card(
+        "Net Qty · Sold",
+        f"{net_qty:,.0f}",
+        sub=f"Sold: {sold_qty:,.0f} units",
+    )
+
+    show_alert = virt_priced > 0 and virt_pnl > 1000
+
     alert_html = ""
-    if virt_priced > 0 and virt_pnl > 1000:
+    if show_alert:
         alert_html = (
             f'<div style="background:linear-gradient(135deg,#ea580c,#f97316);'
             f'border-radius:12px;padding:0.9rem 1.1rem;text-align:center;flex:1.5;min-width:160px;'
@@ -5231,15 +5258,32 @@ def _portfolio_metrics_html(buy_cnt, open_cnt, sell_cnt, total_invested,
             f'</div>'
         )
 
+    qty_book_html = ""
+    if show_alert and cur_price and cur_price > 0:
+        qty_book = max(0, int(virt_pnl / cur_price))
+        qty_book_html = (
+            f'<div style="background:linear-gradient(135deg,#7c3aed,#a855f7);'
+            f'border-radius:12px;padding:0.9rem 1.1rem;text-align:center;flex:1.5;min-width:160px;'
+            f'box-shadow:0 4px 20px rgba(124,58,237,0.35);">'
+            f'<div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:0.07em;color:rgba(255,255,255,0.75);margin-bottom:4px;">📊 Qty to Book</div>'
+            f'<div style="font-size:1.5rem;font-weight:900;color:#fff;line-height:1.1;">{qty_book} units</div>'
+            f'<div style="font-size:0.65rem;color:rgba(255,255,255,0.8);margin-top:3px;">'
+            f'Sell {qty_book} units to lock profit</div>'
+            f'</div>'
+        )
+
     return (
         f'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;margin-bottom:1.2rem;">'
         + card("BUY Rows",        str(buy_cnt))
-        + card("Open Positions",  str(open_cnt))
         + card("SELL Txns",       str(sell_cnt))
+        + price_card
+        + qty_card
         + card("Base Investment", f"₹{total_invested:,.0f}")
         + card("Virtual P&L",     vpnl_str,  vpnl_c)
         + card("Booked Profit",   bkd_str,   bkd_c)
         + alert_html
+        + qty_book_html
         + f'</div>'
     )
 
@@ -5639,10 +5683,29 @@ def _render_holdings_tab(asset_type: str) -> None:
                 virt_cnt    += 1
         virt_pnl = cur_val_sum - total_invested   # matches top card: Current Value − Base Investment
 
+        # Net qty (remaining) and sold qty
+        _net_qty_total  = sum(
+            float(h.get("remaining_qty") if h.get("remaining_qty") is not None else h.get("buy_qty") or 0)
+            for h in open_buy
+        )
+        _sold_qty_total = sum(
+            float(h.get("sell_qty") or h.get("buy_qty") or 0)
+            for h in sell_rows
+        )
+        # Primary live price (first open symbol with a live quote)
+        _primary_price = 0.0
+        for _h in open_buy:
+            _p = live_prices.get(_h["symbol"])
+            if _p:
+                _primary_price = _p
+                break
+        _price_ts = st.session_state.get(f"holdings_prices_at_{asset_type}")
+
         st.markdown(
             _portfolio_metrics_html(
-                len(buy_rows), len(open_buy), len(sell_rows),
-                total_invested, virt_pnl, virt_cnt, total_booked_pnl, dark
+                len(buy_rows), len(sell_rows),
+                total_invested, virt_pnl, virt_cnt, total_booked_pnl,
+                _primary_price, _price_ts, _net_qty_total, _sold_qty_total, dark
             ),
             unsafe_allow_html=True,
         )
