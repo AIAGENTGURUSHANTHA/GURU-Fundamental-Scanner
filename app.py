@@ -5612,7 +5612,7 @@ def _render_holdings_tab(asset_type: str) -> None:
         _last  = st.session_state.get(_fkey)
         _miss  = any(s not in live_prices for s in _open_syms)
         _stale = (_last is None or
-                  (datetime.now() - _last).total_seconds() > 300)
+                  (datetime.now(IST) - _last).total_seconds() > 300)
         if _miss or _stale:
             with st.spinner("📡 Fetching live NSE prices for open positions…"):
                 _fresh = _fetch_nse_live_prices_bulk(_open_syms)
@@ -5624,7 +5624,7 @@ def _render_holdings_tab(asset_type: str) -> None:
         else:
             # Prices are fresh — schedule an auto-rerun in 5 min so the page
             # refreshes automatically even without user interaction
-            _secs_left = max(1, 300 - int((datetime.now() - _last).total_seconds()))
+            _secs_left = max(1, 300 - int((datetime.now(IST) - _last).total_seconds()))
             st.markdown(
                 f'<meta http-equiv="refresh" content="{_secs_left}">',
                 unsafe_allow_html=True,
@@ -5753,7 +5753,7 @@ def _render_holdings_tab(asset_type: str) -> None:
             with lc2:
                 _last_at = st.session_state.get(f"holdings_prices_at_{asset_type}")
                 if _last_at:
-                    _ago = int((datetime.now() - _last_at).total_seconds())
+                    _ago = int((datetime.now(IST) - _last_at).total_seconds())
                     fetched_syms = [s for s in _open_syms if s in live_prices]
                     st.caption(
                         f"✅ Auto-updated {_ago}s ago — {', '.join(fetched_syms)}. "
