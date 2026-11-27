@@ -211,8 +211,9 @@ def _init():
         if _stored:
             _db_user = db.get_user(_stored["phone_number"])
             if _db_user and _db_user.get("is_active"):
-                st.session_state["authenticated"] = True
-                st.session_state["user"]          = _db_user
+                st.session_state["authenticated"]              = True
+                st.session_state["user"]                       = _db_user
+                st.session_state["_post_login_refresh_pending"] = True
             else:
                 _revoke_session_token(_tok)
                 st.query_params.clear()
@@ -348,6 +349,16 @@ def _init():
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
+    if st.session_state.pop("_post_login_refresh_pending", False):
+        for _rk in [
+            "_do_refresh", "dma_do_refresh", "ema_do_refresh", "guru_do_refresh",
+            "smc_do_refresh", "dd_do_refresh", "etf_ema_do_refresh",
+            "ll_etf_do_refresh", "eff_do_refresh",
+            "rsi_stock_do_refresh", "rsi_etf_do_refresh",
+            "bps_stock_do_refresh", "bps_etf_do_refresh", "tt_do_refresh",
+        ]:
+            st.session_state[_rk] = True
 
     # ── Auto-create admin on first run (cloud deployment) ─────────────────
     if not st.session_state.get("_admin_checked"):
@@ -2061,7 +2072,8 @@ def render_login():
                             _tok = _create_session_token(user)
                             st.session_state.update(
                                 authenticated=True, user=user,
-                                otp_sent=False, dev_otp=None
+                                otp_sent=False, dev_otp=None,
+                                _post_login_refresh_pending=True
                             )
                             st.query_params["_s"] = _tok
                             _set_auth_cookie(_tok)   # persist across hard reloads
