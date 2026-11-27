@@ -1546,18 +1546,22 @@ def _load_tt_session(s: dict) -> None:
 def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
     """Fetch 55D High, 20D Low, company name for one symbol via yfinance."""
     result = {
-        "symbol":          symbol,
-        "company_name":    symbol,
-        "current_price":   None,
-        "prev_close":      None,
-        "day55_high":      None,
-        "day55_high_date": None,
-        "day20_low":       None,
-        "day20_low_date":  None,
-        "diff_pct":        None,
-        "gtt_trigger":     None,
-        "zone":            None,
-        "error":           None,
+        "symbol":           symbol,
+        "company_name":     symbol,
+        "current_price":    None,
+        "prev_close":       None,
+        "week52_low":       None,
+        "week52_low_date":  None,
+        "week52_high":      None,
+        "week52_high_date": None,
+        "day55_high":       None,
+        "day55_high_date":  None,
+        "day20_low":        None,
+        "day20_low_date":   None,
+        "diff_pct":         None,
+        "gtt_trigger":      None,
+        "zone":             None,
+        "error":            None,
     }
     try:
         import yfinance as _yf
@@ -1612,13 +1616,19 @@ def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
             result["diff_pct"] = round((h55 - cp) / cp * 100, 2)
             if result["diff_pct"] > 10:
                 result["gtt_trigger"] = h55   # BUY GTT at the 55D high breakout level
-        # Zone: Green if current price is in lower half of 52W range, Red if upper half
+        # 52W High/Low from full 1y history (yfinance fallback; overridden by NSE below)
         try:
             w52_high = round(float(hist["High"].max()), 2)
             w52_low  = round(float(hist["Low"].min()),  2)
+            result["week52_high"] = w52_high
+            result["week52_low"]  = w52_low
+            try:
+                result["week52_high_date"] = str(hist["High"].idxmax().date())
+                result["week52_low_date"]  = str(hist["Low"].idxmin().date())
+            except Exception:
+                pass
             if cp and w52_high and w52_low and w52_high > w52_low:
-                mid = (w52_high + w52_low) / 2
-                result["zone"] = "Green" if cp <= mid else "Red"
+                result["zone"] = "Green" if cp <= (w52_high + w52_low) / 2 else "Red"
         except Exception:
             pass
     except Exception as exc:
@@ -1683,6 +1693,64 @@ def _do_tt_fetch(symbols: list, scan_name: str, ref_date=None,
     except Exception:
         pass
     nse_slot.empty()
+
+    # NSE 52W High/Low enrichment (overrides yfinance fallback with official NSE values)
+    w52_slot = st.empty()
+    w52_slot.markdown(_spinner_html("📡 Fetching 52W High/Low from NSE…"), unsafe_allow_html=True)
+    try:
+        import threading as _thr
+        _w52_lock = _thr.Lock()
+        _w52_map: dict = {}
+
+        from nsepython.rahu import _get_nse_session, headers as _nse_hdr
+        _sess52 = _get_nse_session()
+
+        def _fmt_nse_dt(d):
+            try:
+                from datetime import datetime as _dt2
+                return _dt2.strptime(str(d), "%d-%b-%Y").strftime("%Y-%m-%d")
+            except Exception:
+                return str(d) if d else "—"
+
+        def _fetch52(sym: str) -> None:
+            for _url in (
+                f"https://www.nseindia.com/api/quote-equity?symbol={sym}&series=EQ",
+                f"https://www.nseindia.com/api/quote-equity?symbol={sym}",
+            ):
+                try:
+                    _resp = _sess52.get(_url, headers=_nse_hdr, timeout=8)
+                    if _resp.status_code == 200:
+                        _whl = (_resp.json().get("priceInfo") or {}).get("weekHighLow") or {}
+                        _h, _l = _whl.get("max"), _whl.get("min")
+                        if _h and _l:
+                            with _w52_lock:
+                                _w52_map[sym] = {
+                                    "week52_high":      round(float(str(_h).replace(",", "")), 2),
+                                    "week52_low":       round(float(str(_l).replace(",", "")), 2),
+                                    "week52_high_date": _fmt_nse_dt(_whl.get("maxDate")),
+                                    "week52_low_date":  _fmt_nse_dt(_whl.get("minDate")),
+                                }
+                            return
+                except Exception:
+                    pass
+
+        _valid_syms = [r["symbol"] for r in results if not r.get("error")]
+        with ThreadPoolExecutor(max_workers=20) as _ex52:
+            list(_ex52.map(_fetch52, _valid_syms))
+
+        for r in results:
+            sym = r.get("symbol", "")
+            w52 = _w52_map.get(sym)
+            if w52:
+                r.update(w52)
+                # Recompute Zone with NSE values
+                _cp = r.get("current_price")
+                _h52, _l52 = w52["week52_high"], w52["week52_low"]
+                if _cp and _h52 > _l52:
+                    r["zone"] = "Green" if _cp <= (_h52 + _l52) / 2 else "Red"
+    except Exception:
+        pass
+    w52_slot.empty()
 
     # Sort: GTT signals first (diff_pct > 10, ascending), then rest
     _INF = float("inf")
@@ -7972,6 +8040,10 @@ def render_turtle_trading():
             "Current Price":     cp    if cp    is not None else float("nan"),
             "Prev Close":        pc    if pc    is not None else float("nan"),
             "% Day Change":      pct_d if pct_d is not None else float("nan"),
+            "52W Low":           d.get("week52_low")       if d.get("week52_low")  is not None else float("nan"),
+            "52W Low Date":      d.get("week52_low_date")  or "—",
+            "52W High":          d.get("week52_high")      if d.get("week52_high") is not None else float("nan"),
+            "52W High Date":     d.get("week52_high_date") or "—",
             "Zone":              d.get("zone") or "—",
             "55D High":          h55   if h55   is not None else float("nan"),
             "55D High Date":     d.get("day55_high_date") or "—",
@@ -7983,6 +8055,7 @@ def render_turtle_trading():
 
     tdf = pd.DataFrame(rows)
     for _c in ["Current Price", "Prev Close", "% Day Change",
+               "52W Low", "52W High",
                "55D High", "20D Low", "% Below 55D High", "GTT Trigger (BUY)"]:
         if _c in tdf.columns:
             tdf[_c] = pd.to_numeric(tdf[_c], errors="coerce")
@@ -8029,6 +8102,8 @@ def render_turtle_trading():
             "Current Price":        lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
             "Prev Close":           lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
             "% Day Change":         lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
+            "52W Low":              lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
+            "52W High":             lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
             "55D High":             lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
             "20D Low":              lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
             "% Below 55D High":     lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
