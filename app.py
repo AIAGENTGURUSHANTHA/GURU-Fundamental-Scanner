@@ -324,8 +324,14 @@ def _init():
         # Base Price Screener
         "bps_stock_data": [],
         "bps_stock_last_fetched_at": None,
+        "bps_stock_last_scan_symbols": [],
+        "bps_stock_do_refresh": False,
+        "bps_stock_active_scan_name": None,
         "bps_etf_data": [],
         "bps_etf_last_fetched_at": None,
+        "bps_etf_last_scan_symbols": [],
+        "bps_etf_do_refresh": False,
+        "bps_etf_active_scan_name": None,
         # Turtle Trading
         "tt_data": [],
         "tt_last_fetched_at": None,
@@ -7215,11 +7221,39 @@ def _render_base_price_tab(tab_key: str) -> None:
         st.session_state[data_key]  = data
         st.session_state[fetch_key] = datetime.now()
         st.session_state[name_key]  = scan_name
+        st.session_state[f"{tab_key}_last_scan_symbols"] = [d["symbol"] for d in data]
 
     data = st.session_state.get(data_key, [])
     if not data:
         st.info("Enter NSE symbols above and click 🔍 Scan to calculate Post RD prices.")
         return
+
+    # ── Handle Refresh / Live ─────────────────────────────────────────────────
+    st.session_state.pop(f"_live_pending_{tab_key}", None)
+    if st.session_state.get(f"{tab_key}_do_refresh"):
+        st.session_state[f"{tab_key}_do_refresh"] = False
+        _r_syms = (
+            st.session_state.get(f"{tab_key}_last_scan_symbols")
+            or [d["symbol"] for d in data]
+        )
+        if _r_syms:
+            with st.spinner("📡 Refreshing prices from NSE…"):
+                _lp = _fetch_nse_live_prices_bulk(_r_syms)
+                for _d in data:
+                    _lpi = _lp.get(_d["symbol"])
+                    if _lpi and _lpi.get("price"):
+                        _cp = float(_lpi["price"])
+                        _d["current_price"] = _cp
+                        if _lpi.get("prev_close"):
+                            _d["prev_close"] = _lpi["prev_close"]
+                        if _d.get("sma_3yr"):
+                            _d["diff_3yr"]     = round(_cp - _d["sma_3yr"], 2)
+                            _d["diff_3yr_pct"] = round((_d["diff_3yr"] / _d["sma_3yr"] * 100), 2)
+                        if _d.get("sma_5yr"):
+                            _d["diff_5yr"]     = round(_cp - _d["sma_5yr"], 2)
+                            _d["diff_5yr_pct"] = round((_d["diff_5yr"] / _d["sma_5yr"] * 100), 2)
+            st.session_state[data_key]  = data
+            st.session_state[fetch_key] = datetime.now()
 
     fetched_at  = st.session_state.get(fetch_key)
     source_name = st.session_state.get(name_key, "")
@@ -7244,9 +7278,9 @@ def _render_base_price_tab(tab_key: str) -> None:
     if fetched_at:
         st.caption(f"🕐 Fetched at {fetched_at.strftime('%d %b %Y %H:%M:%S')}")
 
-    # Save button
-    sb1, sb2 = st.columns([1, 5])
-    with sb1:
+    # ── Save / Refresh / Live / Market status ─────────────────────────────────
+    rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
+    with rb1:
         if st.button("💾 Save", width='stretch', key=f"{tab_key}_save_btn",
                      help="Save current results to your account"):
             if st.session_state.get(data_key) and st.session_state.get("user"):
@@ -7254,6 +7288,18 @@ def _render_base_price_tab(tab_key: str) -> None:
                 _n = st.session_state.get(name_key) or "Saved"
                 _save_scan(_u, _n, list(st.session_state[data_key]), scan_type=scan_type)
                 st.toast("✅ Saved!", icon="💾")
+    with rb2:
+        if st.button("🔄 Refresh", width='stretch', key=f"{tab_key}_refresh_btn"):
+            st.session_state[f"{tab_key}_do_refresh"] = True
+            st.rerun()
+    with rb3:
+        _live_btn(tab_key, f"{tab_key}_do_refresh", f"{tab_key}_live_btn")
+    with rb4:
+        if _is_market_open():
+            st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
+        else:
+            _ist_now = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
+            st.info(f"⏸ Market closed ({_ist_now}). Live / Refresh updates NSE prices.")
 
     # ── Top 3 Buy Signals (collapsed) ─────────────────────────────────────────
     if buy_3yr:
