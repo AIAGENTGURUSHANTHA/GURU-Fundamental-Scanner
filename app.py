@@ -1628,7 +1628,10 @@ def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
             except Exception:
                 pass
             if cp and w52_high and w52_low and w52_high > w52_low:
-                result["zone"] = "Green" if cp <= (w52_high + w52_low) / 2 else "Red"
+                _hd = result.get("week52_high_date") or ""
+                _ld = result.get("week52_low_date")  or ""
+                if _hd and _ld:
+                    result["zone"] = "Green" if _ld > _hd else "Red"
         except Exception:
             pass
     except Exception as exc:
@@ -1743,11 +1746,12 @@ def _do_tt_fetch(symbols: list, scan_name: str, ref_date=None,
             w52 = _w52_map.get(sym)
             if w52:
                 r.update(w52)
-                # Recompute Zone with NSE values
-                _cp = r.get("current_price")
-                _h52, _l52 = w52["week52_high"], w52["week52_low"]
-                if _cp and _h52 > _l52:
-                    r["zone"] = "Green" if _cp <= (_h52 + _l52) / 2 else "Red"
+                # Recompute Zone with NSE values: Green if 52W Low date is more
+                # recent than 52W High date (stock is near its lows → buy zone)
+                _hd = w52.get("week52_high_date") or ""
+                _ld = w52.get("week52_low_date")  or ""
+                if _hd and _ld:
+                    r["zone"] = "Green" if _ld > _hd else "Red"
     except Exception:
         pass
     w52_slot.empty()
