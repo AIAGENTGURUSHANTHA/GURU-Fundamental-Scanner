@@ -7703,6 +7703,93 @@ def _render_daily_dukaan_table(data: list) -> None:
         except Exception:
             pass
 
+    # ── Suggestions (collapsible) — shown first for quick overview ──────────────
+    ranked = sorted(
+        [d for d in valid if d.pct_vs_dma20 is not None],
+        key=lambda x: x.pct_vs_dma20,   # most negative first = cheapest
+    )
+    top10 = ranked[:10]
+
+    if len(ranked) >= 2:
+        with st.expander("💡 Top 10 Suggestions — Best Value Picks (Most Below 20 DMA)", expanded=True):
+            st.markdown(
+                "<p style='color:gray;font-size:0.85rem;margin-bottom:0.8rem;'>"
+                "Stocks / ETFs trading furthest <b>below</b> their 20-day moving average — "
+                "ranked by largest negative % gap, indicating the best potential for a mean-reversion bounce.</p>",
+                unsafe_allow_html=True,
+            )
+
+            # Styled rank cards
+            for rank, d in enumerate(top10, start=1):
+                pct  = d.pct_vs_dma20 or 0
+                diff = d.price_vs_dma20 or 0
+                pct_color  = "#16a34a" if pct >= 0 else "#dc2626"
+                pct_sign   = "+" if pct >= 0 else ""
+                diff_sign  = "+" if diff >= 0 else ""
+                medal      = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"][rank - 1]
+                card_bg    = "#161b22" if dark else "#ffffff"
+                border_c   = "#30363d" if dark else "#dde3ec"
+                val_c      = "#c9d1d9" if dark else "#111827"
+                label_c    = "#8b949e" if dark else "#6b7280"
+
+                st.markdown(f"""
+                <div style="background:{card_bg};border:1px solid {border_c};border-radius:12px;
+                            padding:0.9rem 1.2rem;margin-bottom:0.5rem;">
+                  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                    <div style="display:flex;align-items:center;gap:0.8rem;">
+                      <span style="font-size:1.5rem;">{medal}</span>
+                      <div>
+                        <div style="font-size:1rem;font-weight:700;color:{val_c};">{d.symbol}</div>
+                        <div style="font-size:0.8rem;color:{label_c};">{d.company_name or d.symbol}</div>
+                        <div style="display:flex;gap:0.35rem;margin-top:0.25rem;">
+                          <a href="https://www.tradingview.com/chart/?symbol=NSE:{d.symbol}" target="_blank"
+                             style="font-size:0.72rem;font-weight:600;color:#2563eb;text-decoration:none;
+                                    background:rgba(37,99,235,0.08);border:1px solid #bfdbfe;
+                                    border-radius:4px;padding:0.1rem 0.4rem;">📈 TradingView</a>
+                          <a href="https://www.nseindia.com/get-quotes/equity?symbol={d.symbol}" target="_blank"
+                             style="font-size:0.72rem;font-weight:600;color:#2563eb;text-decoration:none;
+                                    background:rgba(37,99,235,0.08);border:1px solid #bfdbfe;
+                                    border-radius:4px;padding:0.1rem 0.4rem;">🏛️ NSE</a>
+                        </div>
+                      </div>
+                    </div>
+                    <div style="text-align:right;">
+                      <div style="font-size:1.3rem;font-weight:700;color:{pct_color};">
+                        {pct_sign}{pct:.2f}%
+                      </div>
+                      <div style="font-size:0.8rem;color:{label_c};">
+                        ₹{d.current_price:,.2f} &nbsp;·&nbsp; 20 DMA ₹{d.dma20:,.2f}
+                        &nbsp;·&nbsp; Diff {diff_sign}{diff:.2f}
+                        &nbsp;·&nbsp; {d.nse_live_time if d.price_source == "NSE Live" else (d.ref_date or "—")}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # Also show as a sortable table for reference
+            sug_rows = [
+                {
+                    "Rank":          i + 1,
+                    "% vs 20 DMA":   top10[i].pct_vs_dma20,
+                    "Symbol":        top10[i].symbol,
+                    "Company Name":  top10[i].company_name or top10[i].symbol,
+                }
+                for i in range(len(top10))
+            ]
+            sdf = pd.DataFrame(sug_rows)
+            st.dataframe(
+                sdf, hide_index=True, width='stretch',
+                column_config={
+                    "Rank":         st.column_config.NumberColumn("Rank",         format="%d",        width="small"),
+                    "% vs 20 DMA":  st.column_config.NumberColumn("% vs 20 DMA",  format="%+.2f%%",   width="small"),
+                    "Symbol":       st.column_config.TextColumn("Symbol",         width="small"),
+                    "Company Name": st.column_config.TextColumn("Company Name",   width="large"),
+                },
+            )
+
     # ── 🥇 MUST BUY card — #1 cheapest (most below 20 DMA) ──────────────────────
     ranked_all = sorted(
         [d for d in valid if d.pct_vs_dma20 is not None],
@@ -7797,93 +7884,6 @@ def _render_daily_dukaan_table(data: list) -> None:
         with st.expander(f"⚠️ {len(errors)} symbol(s) could not be fetched"):
             for d in errors:
                 st.markdown(f"- **{d.symbol}**: {d.error}")
-
-    # ── Suggestions (collapsible) ─────────────────────────────────────────────
-    ranked = sorted(
-        [d for d in valid if d.pct_vs_dma20 is not None],
-        key=lambda x: x.pct_vs_dma20,   # most negative first = cheapest
-    )
-    top10 = ranked[:10]
-
-    if len(ranked) >= 2:
-        with st.expander("💡 Top 10 Suggestions — Best Value Picks (Most Below 20 DMA)", expanded=True):
-            st.markdown(
-                "<p style='color:gray;font-size:0.85rem;margin-bottom:0.8rem;'>"
-                "Stocks / ETFs trading furthest <b>below</b> their 20-day moving average — "
-                "ranked by largest negative % gap, indicating the best potential for a mean-reversion bounce.</p>",
-                unsafe_allow_html=True,
-            )
-
-            # Styled rank cards
-            for rank, d in enumerate(top10, start=1):
-                pct  = d.pct_vs_dma20 or 0
-                diff = d.price_vs_dma20 or 0
-                pct_color  = "#16a34a" if pct >= 0 else "#dc2626"
-                pct_sign   = "+" if pct >= 0 else ""
-                diff_sign  = "+" if diff >= 0 else ""
-                medal      = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"][rank - 1]
-                card_bg    = "#161b22" if dark else "#ffffff"
-                border_c   = "#30363d" if dark else "#dde3ec"
-                val_c      = "#c9d1d9" if dark else "#111827"
-                label_c    = "#8b949e" if dark else "#6b7280"
-
-                st.markdown(f"""
-                <div style="background:{card_bg};border:1px solid {border_c};border-radius:12px;
-                            padding:0.9rem 1.2rem;margin-bottom:0.5rem;">
-                  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                    <div style="display:flex;align-items:center;gap:0.8rem;">
-                      <span style="font-size:1.5rem;">{medal}</span>
-                      <div>
-                        <div style="font-size:1rem;font-weight:700;color:{val_c};">{d.symbol}</div>
-                        <div style="font-size:0.8rem;color:{label_c};">{d.company_name or d.symbol}</div>
-                        <div style="display:flex;gap:0.35rem;margin-top:0.25rem;">
-                          <a href="https://www.tradingview.com/chart/?symbol=NSE:{d.symbol}" target="_blank"
-                             style="font-size:0.72rem;font-weight:600;color:#2563eb;text-decoration:none;
-                                    background:rgba(37,99,235,0.08);border:1px solid #bfdbfe;
-                                    border-radius:4px;padding:0.1rem 0.4rem;">📈 TradingView</a>
-                          <a href="https://www.nseindia.com/get-quotes/equity?symbol={d.symbol}" target="_blank"
-                             style="font-size:0.72rem;font-weight:600;color:#2563eb;text-decoration:none;
-                                    background:rgba(37,99,235,0.08);border:1px solid #bfdbfe;
-                                    border-radius:4px;padding:0.1rem 0.4rem;">🏛️ NSE</a>
-                        </div>
-                      </div>
-                    </div>
-                    <div style="text-align:right;">
-                      <div style="font-size:1.3rem;font-weight:700;color:{pct_color};">
-                        {pct_sign}{pct:.2f}%
-                      </div>
-                      <div style="font-size:0.8rem;color:{label_c};">
-                        ₹{d.current_price:,.2f} &nbsp;·&nbsp; 20 DMA ₹{d.dma20:,.2f}
-                        &nbsp;·&nbsp; Diff {diff_sign}{diff:.2f}
-                        &nbsp;·&nbsp; {d.nse_live_time if d.price_source == "NSE Live" else (d.ref_date or "—")}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # Also show as a sortable table for reference
-            sug_rows = [
-                {
-                    "Rank":          i + 1,
-                    "% vs 20 DMA":   top10[i].pct_vs_dma20,
-                    "Symbol":        top10[i].symbol,
-                    "Company Name":  top10[i].company_name or top10[i].symbol,
-                }
-                for i in range(len(top10))
-            ]
-            sdf = pd.DataFrame(sug_rows)
-            st.dataframe(
-                sdf, hide_index=True, width='stretch',
-                column_config={
-                    "Rank":         st.column_config.NumberColumn("Rank",         format="%d",        width="small"),
-                    "% vs 20 DMA":  st.column_config.NumberColumn("% vs 20 DMA",  format="%+.2f%%",   width="small"),
-                    "Symbol":       st.column_config.TextColumn("Symbol",         width="small"),
-                    "Company Name": st.column_config.TextColumn("Company Name",   width="large"),
-                },
-            )
 
 
 # ── Life Long ETFs ────────────────────────────────────────────────────────────
@@ -8043,84 +8043,6 @@ def _render_ll_etf_table(data: list) -> None:
     dark    = st.session_state.get("dark_mode", False)
     valid   = [d for d in data if not d.error]
     errors  = [d for d in data if d.error]
-
-    # ── Main data table ───────────────────────────────────────────────────────
-    rows = []
-    for d in valid:
-        price_as_of = d.nse_live_time if d.price_source == "NSE Live" else (d.ref_date or "—")
-        rows.append({
-            "Symbol":                     d.symbol,
-            "Company Name":               d.company_name or d.symbol,
-            "Current Price (₹)":          d.current_price,
-            "Price As of Date":           price_as_of,
-            "Price on the Date (₹)":      d.price_on_date,
-            "52W Low (₹)":                d.week52_low,
-            "Price − 52W Low":            d.diff_52w_low,
-            "% vs 52W Low":               d.pct_vs_52w_low,
-            "3Y Avg Price (₹)":           d.avg_price_3y,
-            "5Y Avg Price (₹)":           d.avg_price_5y,
-            "Price − 3Y Avg":             d.diff_3y,
-            "% vs 3Y Avg":                d.pct_vs_3y,
-            "Price − 5Y Avg":             d.diff_5y,
-            "% vs 5Y Avg":                d.pct_vs_5y,
-        })
-
-    if rows:
-        df = pd.DataFrame(rows)
-        df = _df_filter_sort(df, "ll_etf")
-        num_col = st.column_config.NumberColumn
-        txt_col = st.column_config.TextColumn
-
-        # Export buttons
-        ec1, ec2, *_ = st.columns([1, 1, 4])
-        with ec1:
-            st.download_button(
-                "📥 CSV", df.to_csv(index=False).encode(),
-                f"ll_etf_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
-                key="ll_etf_csv_dl",
-            )
-        with ec2:
-            try:
-                import io
-                buf = io.BytesIO()
-                df.to_excel(buf, index=False, engine="openpyxl")
-                st.download_button("📥 Excel", buf.getvalue(),
-                                   f"ll_etf_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
-                                   key="ll_etf_xls_dl")
-            except Exception:
-                pass
-
-        st.dataframe(
-            df, hide_index=True, width='stretch',
-            column_config={
-                "Symbol":                txt_col("Symbol",              width="small"),
-                "Company Name":          txt_col("Company Name",        width="large"),
-                "Current Price (₹)":     num_col("Current Price (₹)",   format="₹%.2f"),
-                "Price As of Date":      txt_col("Price As of Date",    width="medium"),
-                "Price on the Date (₹)": num_col("Price on the Date",   format="₹%.2f"),
-                "52W Low (₹)":           num_col("52W Low (₹)",         format="₹%.2f"),
-                "Price − 52W Low":       num_col("Price − 52W Low",     format="%+.2f"),
-                "% vs 52W Low":          num_col("% vs 52W Low",        format="%+.2f%%"),
-                "3Y Avg Price (₹)":      num_col("3Y Avg Price (₹)",    format="₹%.2f"),
-                "5Y Avg Price (₹)":      num_col("5Y Avg Price (₹)",    format="₹%.2f"),
-                "Price − 3Y Avg":        num_col("Price − 3Y Avg",      format="%+.2f"),
-                "% vs 3Y Avg":           num_col("% vs 3Y Avg",         format="%+.2f%%"),
-                "Price − 5Y Avg":        num_col("Price − 5Y Avg",      format="%+.2f"),
-                "% vs 5Y Avg":           num_col("% vs 5Y Avg",         format="%+.2f%%"),
-            },
-        )
-    else:
-        st.info("No data to display. Scan some symbols first.")
-
-    if errors:
-        with st.expander(f"⚠️ {len(errors)} symbol(s) could not be fetched"):
-            for d in errors:
-                st.markdown(f"- **{d.symbol}**: {d.error}")
-
-    if not valid:
-        return
-
-    st.markdown("---")
 
     # ── Helper: render top-10 ranked section (highlight cards + table) ──────
     def _rank_section(title: str, metric_key: str, diff_key: str,
@@ -8289,8 +8211,81 @@ def _render_ll_etf_table(data: list) -> None:
         expanded=False,
     )
 
+    if valid:
+        st.markdown("---")
 
-# ── Eshwarana Fruit Forest ─────────────────────────────────────────────────────
+    # ── Main data table ───────────────────────────────────────────────────────
+    rows = []
+    for d in valid:
+        price_as_of = d.nse_live_time if d.price_source == "NSE Live" else (d.ref_date or "—")
+        rows.append({
+            "Symbol":                     d.symbol,
+            "Company Name":               d.company_name or d.symbol,
+            "Current Price (₹)":          d.current_price,
+            "Price As of Date":           price_as_of,
+            "Price on the Date (₹)":      d.price_on_date,
+            "52W Low (₹)":                d.week52_low,
+            "Price − 52W Low":            d.diff_52w_low,
+            "% vs 52W Low":               d.pct_vs_52w_low,
+            "3Y Avg Price (₹)":           d.avg_price_3y,
+            "5Y Avg Price (₹)":           d.avg_price_5y,
+            "Price − 3Y Avg":             d.diff_3y,
+            "% vs 3Y Avg":                d.pct_vs_3y,
+            "Price − 5Y Avg":             d.diff_5y,
+            "% vs 5Y Avg":                d.pct_vs_5y,
+        })
+
+    if rows:
+        df = pd.DataFrame(rows)
+        df = _df_filter_sort(df, "ll_etf")
+        num_col = st.column_config.NumberColumn
+        txt_col = st.column_config.TextColumn
+
+        # Export buttons
+        ec1, ec2, *_ = st.columns([1, 1, 4])
+        with ec1:
+            st.download_button(
+                "📥 CSV", df.to_csv(index=False).encode(),
+                f"ll_etf_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+                key="ll_etf_csv_dl",
+            )
+        with ec2:
+            try:
+                import io
+                buf = io.BytesIO()
+                df.to_excel(buf, index=False, engine="openpyxl")
+                st.download_button("📥 Excel", buf.getvalue(),
+                                   f"ll_etf_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
+                                   key="ll_etf_xls_dl")
+            except Exception:
+                pass
+
+        st.dataframe(
+            df, hide_index=True, width='stretch',
+            column_config={
+                "Symbol":                txt_col("Symbol",              width="small"),
+                "Company Name":          txt_col("Company Name",        width="large"),
+                "Current Price (₹)":     num_col("Current Price (₹)",   format="₹%.2f"),
+                "Price As of Date":      txt_col("Price As of Date",    width="medium"),
+                "Price on the Date (₹)": num_col("Price on the Date",   format="₹%.2f"),
+                "52W Low (₹)":           num_col("52W Low (₹)",         format="₹%.2f"),
+                "Price − 52W Low":       num_col("Price − 52W Low",     format="%+.2f"),
+                "% vs 52W Low":          num_col("% vs 52W Low",        format="%+.2f%%"),
+                "3Y Avg Price (₹)":      num_col("3Y Avg Price (₹)",    format="₹%.2f"),
+                "5Y Avg Price (₹)":      num_col("5Y Avg Price (₹)",    format="₹%.2f"),
+                "Price − 3Y Avg":        num_col("Price − 3Y Avg",      format="%+.2f"),
+                "% vs 3Y Avg":           num_col("% vs 3Y Avg",         format="%+.2f%%"),
+                "Price − 5Y Avg":        num_col("Price − 5Y Avg",      format="%+.2f"),
+                "% vs 5Y Avg":           num_col("% vs 5Y Avg",         format="%+.2f%%"),
+            },
+        )
+    else:
+        st.info("No data to display. Scan some symbols first.")
+
+    if errors:
+        with st.expander(f"⚠️ {len(errors)} symbol(s) could not be fetched"):
+            for d in errors:
+                st.markdown(f"- **{d.symbol}**: {d.error}")
 
 def _render_eff():
     from datetime import date as _date
@@ -8447,84 +8442,6 @@ def _render_eff_table(data: list) -> None:
     dark    = st.session_state.get("dark_mode", False)
     valid   = [d for d in data if not d.error]
     errors  = [d for d in data if d.error]
-
-    # ── Main data table ───────────────────────────────────────────────────────
-    rows = []
-    for d in valid:
-        price_as_of = d.nse_live_time if d.price_source == "NSE Live" else (d.ref_date or "—")
-        rows.append({
-            "Symbol":                     d.symbol,
-            "Company Name":               d.company_name or d.symbol,
-            "Current Price (₹)":          d.current_price,
-            "Price As of Date":           price_as_of,
-            "Price on the Date (₹)":      d.price_on_date,
-            "52W Low (₹)":                d.week52_low,
-            "Price − 52W Low":            d.diff_52w_low,
-            "% vs 52W Low":               d.pct_vs_52w_low,
-            "3Y Avg Price (₹)":           d.avg_price_3y,
-            "5Y Avg Price (₹)":           d.avg_price_5y,
-            "Price − 3Y Avg":             d.diff_3y,
-            "% vs 3Y Avg":                d.pct_vs_3y,
-            "Price − 5Y Avg":             d.diff_5y,
-            "% vs 5Y Avg":                d.pct_vs_5y,
-        })
-
-    if rows:
-        df = pd.DataFrame(rows)
-        df = _df_filter_sort(df, "eff")
-        num_col = st.column_config.NumberColumn
-        txt_col = st.column_config.TextColumn
-
-        # Export buttons
-        ec1, ec2, *_ = st.columns([1, 1, 4])
-        with ec1:
-            st.download_button(
-                "📥 CSV", df.to_csv(index=False).encode(),
-                f"eff_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
-                key="eff_csv_dl",
-            )
-        with ec2:
-            try:
-                import io
-                buf = io.BytesIO()
-                df.to_excel(buf, index=False, engine="openpyxl")
-                st.download_button("📥 Excel", buf.getvalue(),
-                                   f"eff_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
-                                   key="eff_xls_dl")
-            except Exception:
-                pass
-
-        st.dataframe(
-            df, hide_index=True, width='stretch',
-            column_config={
-                "Symbol":                txt_col("Symbol",              width="small"),
-                "Company Name":          txt_col("Company Name",        width="large"),
-                "Current Price (₹)":     num_col("Current Price (₹)",   format="₹%.2f"),
-                "Price As of Date":      txt_col("Price As of Date",    width="medium"),
-                "Price on the Date (₹)": num_col("Price on the Date",   format="₹%.2f"),
-                "52W Low (₹)":           num_col("52W Low (₹)",         format="₹%.2f"),
-                "Price − 52W Low":       num_col("Price − 52W Low",     format="%+.2f"),
-                "% vs 52W Low":          num_col("% vs 52W Low",        format="%+.2f%%"),
-                "3Y Avg Price (₹)":      num_col("3Y Avg Price (₹)",    format="₹%.2f"),
-                "5Y Avg Price (₹)":      num_col("5Y Avg Price (₹)",    format="₹%.2f"),
-                "Price − 3Y Avg":        num_col("Price − 3Y Avg",      format="%+.2f"),
-                "% vs 3Y Avg":           num_col("% vs 3Y Avg",         format="%+.2f%%"),
-                "Price − 5Y Avg":        num_col("Price − 5Y Avg",      format="%+.2f"),
-                "% vs 5Y Avg":           num_col("% vs 5Y Avg",         format="%+.2f%%"),
-            },
-        )
-    else:
-        st.info("No data to display. Scan some symbols first.")
-
-    if errors:
-        with st.expander(f"⚠️ {len(errors)} symbol(s) could not be fetched"):
-            for d in errors:
-                st.markdown(f"- **{d.symbol}**: {d.error}")
-
-    if not valid:
-        return
-
-    st.markdown("---")
 
     # ── Helper: render top-10 ranked section (highlight cards + table) ──────
     def _rank_section(title: str, metric_key: str, diff_key: str,
@@ -8690,6 +8607,82 @@ def _render_eff_table(data: list) -> None:
         ),
         expanded=False,
     )
+
+    if valid:
+        st.markdown("---")
+
+    # ── Main data table ───────────────────────────────────────────────────────
+    rows = []
+    for d in valid:
+        price_as_of = d.nse_live_time if d.price_source == "NSE Live" else (d.ref_date or "—")
+        rows.append({
+            "Symbol":                     d.symbol,
+            "Company Name":               d.company_name or d.symbol,
+            "Current Price (₹)":          d.current_price,
+            "Price As of Date":           price_as_of,
+            "Price on the Date (₹)":      d.price_on_date,
+            "52W Low (₹)":                d.week52_low,
+            "Price − 52W Low":            d.diff_52w_low,
+            "% vs 52W Low":               d.pct_vs_52w_low,
+            "3Y Avg Price (₹)":           d.avg_price_3y,
+            "5Y Avg Price (₹)":           d.avg_price_5y,
+            "Price − 3Y Avg":             d.diff_3y,
+            "% vs 3Y Avg":                d.pct_vs_3y,
+            "Price − 5Y Avg":             d.diff_5y,
+            "% vs 5Y Avg":                d.pct_vs_5y,
+        })
+
+    if rows:
+        df = pd.DataFrame(rows)
+        df = _df_filter_sort(df, "eff")
+        num_col = st.column_config.NumberColumn
+        txt_col = st.column_config.TextColumn
+
+        # Export buttons
+        ec1, ec2, *_ = st.columns([1, 1, 4])
+        with ec1:
+            st.download_button(
+                "📥 CSV", df.to_csv(index=False).encode(),
+                f"eff_{_now_ist().strftime('%Y%m%d_%H%M')}.csv", "text/csv",
+                key="eff_csv_dl",
+            )
+        with ec2:
+            try:
+                import io
+                buf = io.BytesIO()
+                df.to_excel(buf, index=False, engine="openpyxl")
+                st.download_button("📥 Excel", buf.getvalue(),
+                                   f"eff_{_now_ist().strftime('%Y%m%d_%H%M')}.xlsx",
+                                   key="eff_xls_dl")
+            except Exception:
+                pass
+
+        st.dataframe(
+            df, hide_index=True, width='stretch',
+            column_config={
+                "Symbol":                txt_col("Symbol",              width="small"),
+                "Company Name":          txt_col("Company Name",        width="large"),
+                "Current Price (₹)":     num_col("Current Price (₹)",   format="₹%.2f"),
+                "Price As of Date":      txt_col("Price As of Date",    width="medium"),
+                "Price on the Date (₹)": num_col("Price on the Date",   format="₹%.2f"),
+                "52W Low (₹)":           num_col("52W Low (₹)",         format="₹%.2f"),
+                "Price − 52W Low":       num_col("Price − 52W Low",     format="%+.2f"),
+                "% vs 52W Low":          num_col("% vs 52W Low",        format="%+.2f%%"),
+                "3Y Avg Price (₹)":      num_col("3Y Avg Price (₹)",    format="₹%.2f"),
+                "5Y Avg Price (₹)":      num_col("5Y Avg Price (₹)",    format="₹%.2f"),
+                "Price − 3Y Avg":        num_col("Price − 3Y Avg",      format="%+.2f"),
+                "% vs 3Y Avg":           num_col("% vs 3Y Avg",         format="%+.2f%%"),
+                "Price − 5Y Avg":        num_col("Price − 5Y Avg",      format="%+.2f"),
+                "% vs 5Y Avg":           num_col("% vs 5Y Avg",         format="%+.2f%%"),
+            },
+        )
+    else:
+        st.info("No data to display. Scan some symbols first.")
+
+    if errors:
+        with st.expander(f"⚠️ {len(errors)} symbol(s) could not be fetched"):
+            for d in errors:
+                st.markdown(f"- **{d.symbol}**: {d.error}")
 
 
 # ── Admin Panel ───────────────────────────────────────────────────────────────
