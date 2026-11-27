@@ -5189,6 +5189,131 @@ def _group_open_buys(open_entries: list, live_prices: dict) -> list:
     return result
 
 
+def _portfolio_metrics_html(buy_cnt, open_cnt, sell_cnt, total_invested,
+                             virt_pnl, virt_priced, total_booked, dark: bool) -> str:
+    """Render the metric strip as a flex row of beautiful cards.
+    Shows an orange Profit Alert card when unrealised gain > ₹1,000."""
+    card_bg  = "#1e2130" if dark else "#ffffff"
+    card_bdr = "rgba(255,255,255,0.08)" if dark else "#e2e8f0"
+    lbl_c    = "#94a3b8" if dark else "#64748b"
+    val_c    = "#e2e8f0" if dark else "#0f172a"
+
+    vpnl_c = ("#4ade80" if virt_pnl >= 0 else "#f87171") if dark else \
+             ("#15803d" if virt_pnl >= 0 else "#b91c1c")
+    bkd_c  = ("#4ade80" if total_booked >= 0 else "#f87171") if dark else \
+             ("#15803d" if total_booked >= 0 else "#b91c1c")
+
+    vpnl_str = f"₹{virt_pnl:+,.2f}" if virt_priced > 0 else "—"
+    bkd_str  = f"₹{total_booked:+,.2f}" if sell_cnt > 0 else "₹0.00"
+
+    def card(label, value, vc=None, extra=""):
+        vc = vc or val_c
+        return (
+            f'<div style="background:{card_bg};border:1px solid {card_bdr};border-radius:12px;'
+            f'padding:0.9rem 1rem;text-align:center;flex:1;min-width:110px;{extra}">'
+            f'<div style="font-size:0.65rem;font-weight:600;text-transform:uppercase;'
+            f'letter-spacing:0.07em;color:{lbl_c};margin-bottom:5px;">{label}</div>'
+            f'<div style="font-size:1.5rem;font-weight:800;color:{vc};line-height:1.1;">{value}</div>'
+            f'</div>'
+        )
+
+    alert_html = ""
+    if virt_priced > 0 and virt_pnl > 1000:
+        alert_html = (
+            f'<div style="background:linear-gradient(135deg,#ea580c,#f97316);'
+            f'border-radius:12px;padding:0.9rem 1.1rem;text-align:center;flex:1.5;min-width:160px;'
+            f'box-shadow:0 4px 20px rgba(234,88,12,0.35);">'
+            f'<div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:0.07em;color:rgba(255,255,255,0.75);margin-bottom:4px;">🚀 Profit Alert</div>'
+            f'<div style="font-size:1.5rem;font-weight:900;color:#fff;line-height:1.1;">₹{virt_pnl:+,.0f}</div>'
+            f'<div style="font-size:0.65rem;color:rgba(255,255,255,0.8);margin-top:3px;">'
+            f'Portfolio up ₹1,000+ · Consider booking</div>'
+            f'</div>'
+        )
+
+    return (
+        f'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;margin-bottom:1.2rem;">'
+        + card("BUY Rows",        str(buy_cnt))
+        + card("Open Positions",  str(open_cnt))
+        + card("SELL Txns",       str(sell_cnt))
+        + card("Base Investment", f"₹{total_invested:,.0f}")
+        + card("Virtual P&L",     vpnl_str,  vpnl_c)
+        + card("Booked Profit",   bkd_str,   bkd_c)
+        + alert_html
+        + f'</div>'
+    )
+
+
+def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool) -> str:
+    """One card per symbol showing total realized profit from all SELL transactions."""
+    if not sell_entries:
+        return ""
+
+    # Group by symbol
+    from collections import defaultdict as _dds
+    groups: dict = _dds(lambda: {"entries": [], "company": "", "total_pnl": 0.0,
+                                   "total_qty": 0.0, "invest": 0.0})
+    for h, pa, *_ in sell_entries:
+        sym = h["symbol"]
+        groups[sym]["entries"].append((h, pa))
+        groups[sym]["company"] = groups[sym]["company"] or h.get("company_name") or sym
+        groups[sym]["total_pnl"] += pa or 0
+        sqty = float(h.get("sell_qty") or h.get("buy_qty") or 0)
+        groups[sym]["total_qty"] += sqty
+        groups[sym]["invest"]    += float(h.get("buy_price") or 0) * sqty
+
+    pos  = total_booked >= 0
+    brd  = "#16a34a" if pos else "#dc2626"
+    bg   = ("rgba(20,83,45,0.35)" if dark else "rgba(220,252,231,0.6)") if pos else \
+           ("rgba(69,10,10,0.35)"  if dark else "rgba(254,226,226,0.6)")
+    txt  = ("#4ade80" if dark else "#15803d") if pos else ("#f87171" if dark else "#b91c1c")
+    lbl  = "#94a3b8" if dark else "#64748b"
+    icon = "✅" if pos else "❌"
+    label = "Total Realized Profit" if pos else "Total Realized Loss"
+
+    sym_lines = []
+    for sym, g in groups.items():
+        pct = (g["total_pnl"] / g["invest"] * 100) if g["invest"] else 0
+        txn_detail = " · ".join(
+            f"₹{h.get('sell_price',0):,.2f}×{float(h.get('sell_qty') or h.get('buy_qty') or 0):,.0f}"
+            f"→₹{pa:+,.2f}" for h, pa in g["entries"]
+        )
+        sym_lines.append(
+            f'<div style="margin-bottom:4px;">'
+            f'<span style="font-weight:700;color:{brd};">{sym}</span>'
+            f' <span style="color:{lbl};font-size:0.78rem;">{g["company"]}</span>'
+            f' &nbsp;·&nbsp; <span style="color:{txt};font-weight:600;">₹{g["total_pnl"]:+,.2f} ({pct:+.1f}%)</span>'
+            f' &nbsp;·&nbsp; <span style="font-size:0.76rem;color:{lbl};">{txn_detail}</span>'
+            f'</div>'
+        )
+
+    total_txns = sum(len(g["entries"]) for g in groups.values())
+    pct_total  = (total_booked / sum(g["invest"] for g in groups.values()) * 100) \
+                 if sum(g["invest"] for g in groups.values()) else 0
+
+    return (
+        f'<div style="background:{bg};border:1.5px solid {brd};border-radius:12px;'
+        f'padding:1rem 1.2rem;margin-bottom:0.6rem;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;">'
+        f'<div>'
+        f'<div style="font-size:0.75rem;font-weight:700;color:{lbl};text-transform:uppercase;'
+        f'letter-spacing:0.06em;margin-bottom:4px;">{icon} {label}</div>'
+        f'<div style="font-size:0.8rem;color:{lbl};">'
+        f'{total_txns} SELL transaction{"s" if total_txns != 1 else ""} · {len(groups)} symbol{"s" if len(groups) != 1 else ""}'
+        f'</div>'
+        f'</div>'
+        f'<div style="text-align:right;">'
+        f'<div style="font-size:1.6rem;font-weight:900;color:{txt};">₹{total_booked:+,.2f}</div>'
+        f'<div style="font-size:0.76rem;color:{lbl};">{pct_total:+.2f}% on cost</div>'
+        f'</div>'
+        f'</div>'
+        f'<div style="margin-top:0.75rem;padding-top:0.65rem;border-top:1px solid {brd}40;'
+        f'font-size:0.78rem;line-height:1.6;">'
+        + "".join(sym_lines)
+        + f'</div></div>'
+    )
+
+
 def _holding_card_html(h: dict, pnl_amt, pnl_pct, days: int,
                         is_open: bool, eff_price, dark: bool) -> str:
     t_type  = h.get("transaction_type", "BUY")
@@ -5440,8 +5565,13 @@ def _render_holdings_tab(asset_type: str) -> None:
   </div>
 </div>""", unsafe_allow_html=True)
 
-        # Metric strip
-        total_invested = sum(h["buy_price"] * h["buy_qty"] for h in buy_rows)
+        # Metric strip — booked profit + optional orange alert
+        total_invested    = sum(h["buy_price"] * h["buy_qty"] for h in buy_rows)
+        total_booked_pnl  = sum(
+            (float(h.get("sell_price") or 0) - float(h.get("buy_price") or 0))
+            * float(h.get("sell_qty") or h.get("buy_qty") or 0)
+            for h in sell_rows
+        )
         cur_val_sum, virt_cnt = 0.0, 0
         for h in open_buy:
             live = live_prices.get(h["symbol"])
@@ -5451,26 +5581,13 @@ def _render_holdings_tab(asset_type: str) -> None:
                 virt_cnt    += 1
         virt_pnl = cur_val_sum - total_invested   # matches top card: Current Value − Base Investment
 
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("BUY Rows",          len(buy_rows))
-        c2.metric("Open Positions",    len(open_buy))
-        c3.metric("SELL Transactions", len(sell_rows))
-        c4.metric("Total Invested",    f"₹{total_invested:,.2f}")
-        if virt_cnt > 0:
-            _pnl_col  = ("#4ade80" if virt_pnl >= 0 else "#f87171") if dark else ("#15803d" if virt_pnl >= 0 else "#b91c1c")
-            _card_bg  = "#1e2130" if dark else "#ffffff"
-            _card_br  = "rgba(255,255,255,0.1)" if dark else "rgba(49,51,63,0.1)"
-            c5.markdown(
-                f'<div style="background:{_card_bg};border:1px solid {_card_br};'
-                f'border-radius:0.5rem;padding:0.6rem 0.75rem;'
-                f'box-shadow:0 1px 3px rgba(49,51,63,0.08);">'
-                f'<div style="font-size:0.8rem;color:#64748b;margin-bottom:0.3rem;">Virtual P&amp;L (open)</div>'
-                f'<div style="font-size:1.6rem;font-weight:700;color:{_pnl_col};line-height:1.1;">₹{virt_pnl:+,.2f}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            c5.metric("Virtual P&L (open)", "—")
+        st.markdown(
+            _portfolio_metrics_html(
+                len(buy_rows), len(open_buy), len(sell_rows),
+                total_invested, virt_pnl, virt_cnt, total_booked_pnl, dark
+            ),
+            unsafe_allow_html=True,
+        )
 
         # Manual force-refresh + last-fetched timestamp
         if _open_syms:
@@ -6106,24 +6223,14 @@ def _render_holdings_tab(asset_type: str) -> None:
                                 unsafe_allow_html=True)
 
     if sell_pnl:
-        profit_sells = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in sell_pnl if pa >= 0]
-        loss_sells   = [(h, pa, pp, d, io, ep) for h, pa, pp, d, io, ep in sell_pnl if pa < 0]
-        if profit_sells:
-            with st.expander(f"✅ Realized Profit — SELL Transactions ({len(profit_sells)})",
-                             expanded=False):
-                cols = st.columns(min(3, len(profit_sells)))
-                for i, (h, pa, pp, d, io, ep) in enumerate(profit_sells):
-                    with cols[i % 3]:
-                        st.markdown(_holding_card_html(h, pa, pp, d, io, ep, dark),
-                                    unsafe_allow_html=True)
-        if loss_sells:
-            with st.expander(f"❌ Realized Loss — SELL Transactions ({len(loss_sells)})",
-                             expanded=False):
-                cols = st.columns(min(3, len(loss_sells)))
-                for i, (h, pa, pp, d, io, ep) in enumerate(loss_sells):
-                    with cols[i % 3]:
-                        st.markdown(_holding_card_html(h, pa, pp, d, io, ep, dark),
-                                    unsafe_allow_html=True)
+        total_realized = sum(pa for _, pa, *_ in sell_pnl)
+        pos_label = "✅ Realized Profit" if total_realized >= 0 else "❌ Realized Loss"
+        with st.expander(f"{pos_label} — SELL Transactions ({len(sell_pnl)}) · Total ₹{total_realized:+,.2f}",
+                         expanded=False):
+            st.markdown(
+                _sell_summary_card_html(sell_pnl, total_realized, dark),
+                unsafe_allow_html=True,
+            )
 
     if no_price:
         with st.expander(f"⏳ Live Price Needed — Open Positions ({len(no_price)})",
