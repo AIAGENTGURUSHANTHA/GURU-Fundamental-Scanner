@@ -5253,9 +5253,9 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
     from collections import defaultdict as _dds
     groups: dict = _dds(lambda: {"entries": [], "company": "", "total_pnl": 0.0,
                                    "total_qty": 0.0, "invest": 0.0})
-    for h, pa, *_ in sell_entries:
+    for h, pa, pp, *_ in sell_entries:
         sym = h["symbol"]
-        groups[sym]["entries"].append((h, pa))
+        groups[sym]["entries"].append((h, pa, pp))
         groups[sym]["company"] = groups[sym]["company"] or h.get("company_name") or sym
         groups[sym]["total_pnl"] += pa or 0
         sqty = float(h.get("sell_qty") or h.get("buy_qty") or 0)
@@ -5268,6 +5268,8 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
            ("rgba(69,10,10,0.35)"  if dark else "rgba(254,226,226,0.6)")
     txt  = ("#4ade80" if dark else "#15803d") if pos else ("#f87171" if dark else "#b91c1c")
     lbl  = "#94a3b8" if dark else "#64748b"
+    card_bg = "#1e293b" if dark else "#ffffff"
+    row_alt = "rgba(255,255,255,0.04)" if dark else "rgba(0,0,0,0.03)"
     icon = "✅" if pos else "❌"
     label = "Total Realized Profit" if pos else "Total Realized Loss"
 
@@ -5276,7 +5278,7 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
         pct = (g["total_pnl"] / g["invest"] * 100) if g["invest"] else 0
         txn_detail = " · ".join(
             f"₹{h.get('sell_price',0):,.2f}×{float(h.get('sell_qty') or h.get('buy_qty') or 0):,.0f}"
-            f"→₹{pa:+,.2f}" for h, pa in g["entries"]
+            f"→₹{pa:+,.2f}" for h, pa, _pp in g["entries"]
         )
         sym_lines.append(
             f'<div style="margin-bottom:4px;">'
@@ -5290,6 +5292,57 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
     total_txns = sum(len(g["entries"]) for g in groups.values())
     pct_total  = (total_booked / sum(g["invest"] for g in groups.values()) * 100) \
                  if sum(g["invest"] for g in groups.values()) else 0
+
+    # Build detailed transaction rows for the collapsible section
+    th_style = (f'style="padding:5px 8px;text-align:left;font-size:0.72rem;font-weight:700;'
+                f'color:{lbl};text-transform:uppercase;letter-spacing:0.05em;'
+                f'border-bottom:1px solid {brd}40;white-space:nowrap;"')
+    detail_rows = []
+    for i, (h, pa, pp) in enumerate(sell_entries):
+        sym      = h["symbol"]
+        sell_dt  = h.get("sell_date") or h.get("buy_date") or "—"
+        buy_px   = float(h.get("buy_price") or 0)
+        sell_px  = float(h.get("sell_price") or 0)
+        sqty     = float(h.get("sell_qty") or h.get("buy_qty") or 0)
+        pnl_clr  = ("#4ade80" if dark else "#16a34a") if (pa or 0) >= 0 else ("#f87171" if dark else "#dc2626")
+        pct_str  = f"{pp:+.2f}%" if pp is not None else "—"
+        row_bg   = row_alt if i % 2 == 0 else "transparent"
+        td       = (f'style="padding:5px 8px;font-size:0.76rem;border-bottom:1px solid '
+                    f'{brd}20;background:{row_bg};white-space:nowrap;"')
+        detail_rows.append(
+            f'<tr>'
+            f'<td {td}><b>{sym}</b></td>'
+            f'<td {td}>{sell_dt}</td>'
+            f'<td {td}>₹{buy_px:,.2f}</td>'
+            f'<td {td}>₹{sell_px:,.2f}</td>'
+            f'<td {td}>{sqty:,.0f}</td>'
+            f'<td {td}><span style="color:{pnl_clr};font-weight:700;">₹{pa:+,.2f}</span></td>'
+            f'<td {td}><span style="color:{pnl_clr};">{pct_str}</span></td>'
+            f'</tr>'
+        )
+
+    details_html = (
+        f'<details style="margin-top:0.75rem;padding-top:0.65rem;border-top:1px solid {brd}40;">'
+        f'<summary style="cursor:pointer;font-size:0.78rem;font-weight:600;color:{lbl};'
+        f'list-style:none;user-select:none;padding:2px 0;">'
+        f'📋 View all {total_txns} transaction detail{"s" if total_txns != 1 else ""}'
+        f'</summary>'
+        f'<div style="margin-top:0.65rem;overflow-x:auto;">'
+        f'<table style="width:100%;border-collapse:collapse;min-width:520px;">'
+        f'<thead><tr>'
+        f'<th {th_style}>Symbol</th>'
+        f'<th {th_style}>Sell Date</th>'
+        f'<th {th_style}>Buy Price</th>'
+        f'<th {th_style}>Sell Price</th>'
+        f'<th {th_style}>Qty</th>'
+        f'<th {th_style}>P&L (₹)</th>'
+        f'<th {th_style}>P&L %</th>'
+        f'</tr></thead>'
+        f'<tbody>' + "".join(detail_rows) + f'</tbody>'
+        f'</table>'
+        f'</div>'
+        f'</details>'
+    )
 
     return (
         f'<div style="background:{bg};border:1.5px solid {brd};border-radius:12px;'
@@ -5310,6 +5363,7 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
         f'<div style="margin-top:0.75rem;padding-top:0.65rem;border-top:1px solid {brd}40;'
         f'font-size:0.78rem;line-height:1.6;">'
         + "".join(sym_lines)
+        + details_html
         + f'</div></div>'
     )
 
