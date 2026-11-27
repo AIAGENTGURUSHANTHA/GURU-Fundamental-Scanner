@@ -17,6 +17,7 @@ class RSIData(BaseModel):
 
     price_source: str = "Yahoo Finance (NSE)"
     nse_live_time: Optional[str] = None
+    prev_close: Optional[float] = None
 
     error: Optional[str] = None
     data_source: str = "Yahoo Finance (NSE)"

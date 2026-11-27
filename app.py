@@ -6881,6 +6881,7 @@ def _do_rsi_fetch(prefix: str, symbols: list, scan_name: str,
                     "ref_date":      nse_date,
                     "price_source":  source,
                     "nse_live_time": lp["time"],
+                    "prev_close":    lp.get("prev_close"),
                 }))
             else:
                 enriched.append(r)
@@ -7071,6 +7072,11 @@ def _render_rsi_table(data: list, prefix: str) -> None:
             "Symbol":       d.symbol,
             "Company Name": d.company_name or d.symbol,
             "Price (₹)":    d.current_price,
+            "Prev Close":   d.prev_close,
+            "% Day Change": (
+                round((d.current_price - d.prev_close) / d.prev_close * 100, 2)
+                if d.current_price and d.prev_close else None
+            ),
             "Daily RSI":    d.daily_rsi,
             "Weekly RSI":   d.weekly_rsi,
             "Monthly RSI":  d.monthly_rsi,
@@ -7132,19 +7138,34 @@ def _render_rsi_table(data: list, prefix: str) -> None:
                     else "background-color:#fee2e2;color:#b91c1c")
         return ""
 
+    def _style_day_change(val):
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return ""
+        if v > 0:
+            return "color:#16a34a;font-weight:600"
+        if v < 0:
+            return "color:#dc2626;font-weight:600"
+        return ""
+
     rsi_cols = [c for c in ("Daily RSI", "Weekly RSI", "Monthly RSI") if c in df.columns]
     styled = df.style.map(_style_rsi_cell, subset=rsi_cols)
+    if "% Day Change" in df.columns:
+        styled = styled.map(_style_day_change, subset=["% Day Change"])
 
     num_col = st.column_config.NumberColumn
     txt_col = st.column_config.TextColumn
     col_cfg: dict = {
-        "Symbol":       txt_col("Symbol",       width="small"),
-        "Company Name": txt_col("Company Name", width="large"),
-        "Price (₹)":    num_col("Price (₹)",    format="₹%.2f"),
-        "Daily RSI":    num_col("Daily RSI",    format="%.2f"),
-        "Weekly RSI":   num_col("Weekly RSI",   format="%.2f"),
-        "Monthly RSI":  num_col("Monthly RSI",  format="%.2f"),
-        "Date":         txt_col("Date",          width="small"),
+        "Symbol":        txt_col("Symbol",       width="small"),
+        "Company Name":  txt_col("Company Name", width="large"),
+        "Price (₹)":     num_col("Price (₹)",    format="₹%.2f"),
+        "Prev Close":    num_col("Prev Close",    format="₹%.2f"),
+        "% Day Change":  num_col("% Day Change",  format="%.2f%%"),
+        "Daily RSI":     num_col("Daily RSI",     format="%.2f"),
+        "Weekly RSI":    num_col("Weekly RSI",    format="%.2f"),
+        "Monthly RSI":   num_col("Monthly RSI",   format="%.2f"),
+        "Date":          txt_col("Date",           width="small"),
     }
     if "Error" in df.columns:
         col_cfg["Error"] = txt_col("Error", width="large")
