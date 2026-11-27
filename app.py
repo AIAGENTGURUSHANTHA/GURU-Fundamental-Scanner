@@ -614,6 +614,37 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
         except Exception:
             pass
 
+    # ── Prev Close fill: symbols with price but no prev_close ────────────────
+    _no_pc = [s for s in symbols if s in out and out[s].get("prev_close") is None]
+    if _no_pc:
+        try:
+            from nsepython.rahu import _get_nse_session, headers as _nse_headers
+            _sess_pc = _get_nse_session()
+
+            def _fill_pc(sym: str) -> None:
+                for _url in (
+                    f"https://www.nseindia.com/api/quote-equity?symbol={sym}&series=EQ",
+                    f"https://www.nseindia.com/api/quote-equity?symbol={sym}",
+                ):
+                    try:
+                        _r = _sess_pc.get(_url, headers=_nse_headers, timeout=8)
+                        if _r.status_code == 200:
+                            _pi = _r.json().get("priceInfo") or {}
+                            _pc_raw = _pi.get("previousClose")
+                            if _pc_raw is not None:
+                                _pc = round(float(str(_pc_raw).replace(",", "")), 2)
+                                with _lock:
+                                    if sym in out:
+                                        out[sym]["prev_close"] = _pc
+                                return
+                    except Exception:
+                        pass
+
+            with ThreadPoolExecutor(max_workers=20) as _ex_pc:
+                list(_ex_pc.map(_fill_pc, _no_pc))
+        except Exception:
+            pass
+
     return out
 
 
@@ -6869,7 +6900,7 @@ def _do_rsi_fetch(prefix: str, symbols: list, scan_name: str,
                 if lp.get("time"):
                     for fmt in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y"):
                         try:
-                            parsed    = datetime.strptime(lp["time"][:len(fmt)], fmt)
+                            parsed    = datetime.strptime(lp["time"], fmt)
                             candidate = parsed.strftime("%Y-%m-%d")
                             if today_sess or (candidate > (nse_date or "")):
                                 nse_date = candidate
