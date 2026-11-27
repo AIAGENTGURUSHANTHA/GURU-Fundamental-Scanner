@@ -5148,8 +5148,10 @@ def _group_open_buys(open_entries: list, live_prices: dict) -> list:
         name = ""
 
         for h, *_ in entries:
-            remaining = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
-            total_cost      += float(h["buy_price"]) * remaining
+            buy_qty_h  = float(h.get("buy_qty") or 0)
+            remaining_raw = h.get("remaining_qty")
+            remaining  = float(buy_qty_h if remaining_raw is None else remaining_raw)
+            total_cost      += float(h["buy_price"]) * buy_qty_h   # base investment = buy_price × buy_qty
             total_remaining += remaining
             bd = h.get("buy_date", "") or ""
             if bd and (not earliest_date or bd < earliest_date):
