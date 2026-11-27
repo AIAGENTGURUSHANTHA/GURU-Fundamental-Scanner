@@ -1546,14 +1546,17 @@ def _load_tt_session(s: dict) -> None:
 def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
     """Fetch 55D High, 20D Low, company name for one symbol via yfinance."""
     result = {
-        "symbol":        symbol,
-        "company_name":  symbol,
-        "current_price": None,
-        "day55_high":    None,
-        "day20_low":     None,
-        "diff_pct":      None,
-        "gtt_trigger":   None,
-        "error":         None,
+        "symbol":          symbol,
+        "company_name":    symbol,
+        "current_price":   None,
+        "prev_close":      None,
+        "day55_high":      None,
+        "day55_high_date": None,
+        "day20_low":       None,
+        "day20_low_date":  None,
+        "diff_pct":        None,
+        "gtt_trigger":     None,
+        "error":           None,
     }
     try:
         import yfinance as _yf
@@ -1563,7 +1566,7 @@ def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
         if hist.empty:
             result["error"] = "No data from Yahoo Finance"
             return result
-        # Company name
+        # Company name + prev_close from fast_info
         try:
             fi = t.fast_info
             for _attr in ("long_name", "longName", "short_name", "shortName"):
@@ -1571,6 +1574,9 @@ def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
                 if _val:
                     result["company_name"] = str(_val)
                     break
+            _pc_raw = getattr(fi, "previous_close", None)
+            if _pc_raw:
+                result["prev_close"] = round(float(_pc_raw), 2)
         except Exception:
             pass
         # Clip to ref_date if provided
@@ -1586,10 +1592,18 @@ def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
         h55 = hist.tail(55)
         if not h55.empty:
             result["day55_high"] = round(float(h55["High"].max()), 2)
+            try:
+                result["day55_high_date"] = str(h55["High"].idxmax().date())
+            except Exception:
+                pass
         # 20-day Low (use daily Low bars, last 20 rows)
         h20 = hist.tail(20)
         if not h20.empty:
             result["day20_low"] = round(float(h20["Low"].min()), 2)
+            try:
+                result["day20_low_date"] = str(h20["Low"].idxmin().date())
+            except Exception:
+                pass
         # % diff = how far current price is BELOW the 55D high (positive = below, negative = above/breakout)
         cp  = result["current_price"]
         h55 = result["day55_high"]
@@ -1648,6 +1662,8 @@ def _do_tt_fetch(symbols: list, scan_name: str, ref_date=None,
             lp = live_px.get(r["symbol"])
             if lp and not r.get("error"):
                 r["current_price"] = round(lp["price"], 2)
+                if lp.get("prev_close"):
+                    r["prev_close"] = lp["prev_close"]
                 # Recalculate diff and GTT with fresh live price
                 h55 = r.get("day55_high")
                 cp  = r["current_price"]
@@ -7934,24 +7950,40 @@ def render_turtle_trading():
     rows = []
     for d in data:
         cp    = d.get("current_price")
+        pc    = d.get("prev_close")
+        pct_d = round((cp - pc) / pc * 100, 2) if cp and pc else None
         h55   = d.get("day55_high")
         l20   = d.get("day20_low")
         diff  = d.get("diff_pct")
         gtt   = d.get("gtt_trigger")
         rows.append({
-            "Symbol":        d.get("symbol", ""),
-            "Company Name":  d.get("company_name") or d.get("symbol", ""),
-            "Current Price": cp   if cp   is not None else float("nan"),
-            "55D High":      h55  if h55  is not None else float("nan"),
-            "20D Low":       l20  if l20  is not None else float("nan"),
-            "% Below 55D High": diff if diff is not None else float("nan"),
-            "GTT Trigger (BUY)": gtt if gtt  is not None else float("nan"),
+            "Symbol":            d.get("symbol", ""),
+            "Company Name":      d.get("company_name") or d.get("symbol", ""),
+            "Current Price":     cp    if cp    is not None else float("nan"),
+            "Prev Close":        pc    if pc    is not None else float("nan"),
+            "% Day Change":      pct_d if pct_d is not None else float("nan"),
+            "55D High":          h55   if h55   is not None else float("nan"),
+            "55D High Date":     d.get("day55_high_date") or "—",
+            "20D Low":           l20   if l20   is not None else float("nan"),
+            "20D Low Date":      d.get("day20_low_date") or "—",
+            "% Below 55D High":  diff  if diff  is not None else float("nan"),
+            "GTT Trigger (BUY)": gtt   if gtt   is not None else float("nan"),
         })
 
     tdf = pd.DataFrame(rows)
-    for _c in ["Current Price", "55D High", "20D Low", "% Below 55D High", "GTT Trigger (BUY)"]:
+    for _c in ["Current Price", "Prev Close", "% Day Change",
+               "55D High", "20D Low", "% Below 55D High", "GTT Trigger (BUY)"]:
         if _c in tdf.columns:
             tdf[_c] = pd.to_numeric(tdf[_c], errors="coerce")
+
+    def _color_day_change(col):
+        styles = []
+        for v in col:
+            if pd.isna(v):       styles.append("")
+            elif v > 0:          styles.append("color: #16a34a; font-weight: 600")
+            elif v < 0:          styles.append("color: #dc2626; font-weight: 600")
+            else:                styles.append("")
+        return styles
 
     def _color_diff(col):
         styles = []
@@ -7976,13 +8008,16 @@ def render_turtle_trading():
         tdf.style
         .format({
             "Current Price":        lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
+            "Prev Close":           lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
+            "% Day Change":         lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
             "55D High":             lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
             "20D Low":              lambda v: f"₹{v:,.2f}" if pd.notna(v) else "—",
             "% Below 55D High":     lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
             "GTT Trigger (BUY)":    lambda v: f"BUY @ ₹{v:,.2f}" if pd.notna(v) else "—",
         }, na_rep="—")
-        .apply(_color_diff, subset=["% Below 55D High"])
-        .apply(_color_gtt,  subset=["GTT Trigger (BUY)"])
+        .apply(_color_day_change, subset=["% Day Change"])
+        .apply(_color_diff,       subset=["% Below 55D High"])
+        .apply(_color_gtt,        subset=["GTT Trigger (BUY)"])
     )
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
