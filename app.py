@@ -5228,8 +5228,16 @@ def _portfolio_metrics_html(buy_cnt, sell_cnt, total_invested,
         date_str = time_str = ""
         if price_ts:
             try:
-                date_str = price_ts.strftime("%d-%b-%Y")
-                time_str = price_ts.strftime("%H:%M:%S")
+                from datetime import timezone as _tz, timedelta as _td
+                _IST = _tz(_td(hours=5, minutes=30))
+                # Convert naive UTC → IST, or re-attach IST for aware timestamps
+                _ts = price_ts
+                if _ts.tzinfo is None:
+                    _ts = _ts.replace(tzinfo=_tz.utc).astimezone(_IST)
+                else:
+                    _ts = _ts.astimezone(_IST)
+                date_str = _ts.strftime("%d-%b-%Y")
+                time_str = _ts.strftime("%H:%M:%S IST")
             except Exception:
                 date_str = str(price_ts)[:10]
                 time_str = str(price_ts)[11:19]
@@ -5611,7 +5619,7 @@ def _render_holdings_tab(asset_type: str) -> None:
             _new = dict(live_prices)
             _new.update({s: v["price"] for s, v in _fresh.items() if v.get("price")})
             st.session_state["holdings_live_prices"] = _new
-            st.session_state[_fkey] = datetime.now()
+            st.session_state[_fkey] = datetime.now(IST)
             live_prices = _new
         else:
             # Prices are fresh — schedule an auto-rerun in 5 min so the page
