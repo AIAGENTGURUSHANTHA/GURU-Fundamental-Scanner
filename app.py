@@ -136,6 +136,56 @@ def _revoke_session_token(token: str) -> None:
         pass
 
 
+# ── Browser-cookie helpers (persist login across hard reloads / new tabs) ─────
+
+def _set_auth_cookie(token: str) -> None:
+    """Write session token to a 30-day browser cookie."""
+    import streamlit.components.v1 as _cv1
+    _safe = token.replace('"', '').replace(';', '').replace(' ', '')
+    _cv1.html(
+        f'<script>document.cookie="guru_session={_safe};max-age=2592000;path=/;SameSite=Lax";</script>',
+        height=0,
+    )
+
+
+def _clear_auth_cookie() -> None:
+    """Delete the session cookie on logout."""
+    import streamlit.components.v1 as _cv1
+    _cv1.html(
+        '<script>document.cookie="guru_session=;max-age=0;path=/;SameSite=Lax";</script>',
+        height=0,
+    )
+
+
+def _restore_from_cookie() -> None:
+    """
+    If guru_session cookie exists but ?_s= is missing from the URL,
+    redirect the parent window to add the token so _init() can restore the session.
+    Called only when the user is not yet authenticated and no token is in the URL.
+    """
+    import streamlit.components.v1 as _cv1
+    _cv1.html(
+        """
+        <script>
+        try {
+            var m = document.cookie.match(/(?:^|;)\\s*guru_session=([^;]+)/);
+            if (m) {
+                var tok = decodeURIComponent(m[1]);
+                var p   = new URLSearchParams(window.parent.location.search);
+                if (!p.get('_s')) {
+                    p.set('_s', tok);
+                    window.parent.location.replace(
+                        window.parent.location.pathname + '?' + p.toString()
+                    );
+                }
+            }
+        } catch(e) {}
+        </script>
+        """,
+        height=0,
+    )
+
+
 def _spinner_html(msg: str) -> str:
     """Return HTML for an inline circular spinner + message."""
     return (
@@ -168,6 +218,9 @@ def _init():
                 st.query_params.clear()
         else:
             st.query_params.clear()
+    elif not _tok and not st.session_state.get("authenticated"):
+        # No token in URL — check browser cookie and redirect if one is found
+        _restore_from_cookie()
 
     # Restore last active section from URL (survives browser refresh)
     _valid_sections = {
@@ -1666,6 +1719,7 @@ def render_login():
                                 otp_sent=False, dev_otp=None
                             )
                             st.query_params["_s"] = _tok
+                            _set_auth_cookie(_tok)   # persist across hard reloads
                             # Clean up any duplicate scan history entries on login
                             db.deduplicate_scan_sessions(user["phone_number"])
                             st.rerun()
@@ -2076,6 +2130,7 @@ def render_sidebar():
             _tok = st.query_params.get("_s", "")
             if _tok:
                 _revoke_session_token(_tok)
+            _clear_auth_cookie()   # remove browser cookie so reload shows login
             for k in list(st.session_state.keys()):
                 del st.session_state[k]
             st.query_params.clear()
