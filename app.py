@@ -6850,14 +6850,13 @@ def _render_rsi_tab(prefix: str, label: str, sample_syms: list) -> None:
     latest_ref = max(all_dates) if all_dates else "—"
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Symbols Scanned", len(data))
+    _rsi_sn = st.session_state.get(f"{prefix}_active_scan_name", "")
+    _rsi_sn_d = _rsi_sn.rsplit(".", 1)[0] if _rsi_sn and "." in _rsi_sn else _rsi_sn
+    c1.metric("Symbols Scanned", len(data), delta=_rsi_sn_d or None, delta_color="off")
     c2.metric("Trading Day",     latest_ref)
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", _fmt_ts(fetched_at))
-    _rsi_sn = st.session_state.get(f"{prefix}_active_scan_name", "")
-    if _rsi_sn:
-        st.caption(f"📁 Source: **{_rsi_sn}**")
 
     rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
     with rb1:
@@ -7284,7 +7283,8 @@ def _render_base_price_tab(tab_key: str) -> None:
     mc4.metric("🔴 5yr Don't Buy",    len(sell_5yr))
 
     if source_name:
-        st.caption(f"📁 Source: **{source_name}**")
+        _src_disp = source_name.rsplit(".", 1)[0] if "." in source_name else source_name
+        st.caption(f"📁 Source: **{_src_disp}**")
     if fetched_at:
         st.caption(f"🕐 Fetched at {fetched_at.strftime('%d %b %Y %H:%M:%S')}")
 
@@ -7886,16 +7886,13 @@ def _render_daily_dukaan():
 
     # Summary metrics
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Symbols Scanned", len(data))
+    _dd_sn = st.session_state.get("dd_active_scan_name", "")
+    _dd_sn_d = _dd_sn.rsplit(".", 1)[0] if _dd_sn and "." in _dd_sn else _dd_sn
+    c1.metric("Symbols Scanned", len(data), delta=_dd_sn_d or None, delta_color="off")
     c2.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
-    _dd_sn = st.session_state.get("dd_active_scan_name", "")
-    if _dd_sn:
-        st.caption(f"📁 Source: **{_dd_sn}**")
-
-    # Refresh + Live buttons + market status badge
     rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
     with rb1:
         if st.button("💾 Save", use_container_width=True, key="save_dd_btn",
@@ -8002,10 +7999,10 @@ def _render_daily_dukaan_table(data: list) -> None:
                 "Symbol":        top3[i].symbol,
                 "Company Name":  top3[i].company_name or top3[i].symbol,
                 "Current Price": top3[i].current_price,
-                "Prev Close":    top3[i].prev_close,
+                "Prev Close":    top3[i].prev_close if top3[i].prev_close is not None else float("nan"),
                 "% Day Change":  (
                     round((top3[i].current_price - top3[i].prev_close) / top3[i].prev_close * 100, 2)
-                    if (top3[i].current_price and top3[i].prev_close) else None
+                    if (top3[i].current_price and top3[i].prev_close) else float("nan")
                 ),
             }
             for i in range(len(top3))
@@ -8299,14 +8296,13 @@ def _render_ll_etf():
 
     # Summary metrics
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Symbols Scanned", len(data))
+    _ll_sn = st.session_state.get("ll_etf_active_scan_name", "")
+    _ll_sn_d = _ll_sn.rsplit(".", 1)[0] if _ll_sn and "." in _ll_sn else _ll_sn
+    c1.metric("Symbols Scanned", len(data), delta=_ll_sn_d or None, delta_color="off")
     c2.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
-    _ll_sn = st.session_state.get("ll_etf_active_scan_name", "")
-    if _ll_sn:
-        st.caption(f"📁 Source: **{_ll_sn}**")
 
     # Refresh + Live buttons
     rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
@@ -8370,10 +8366,10 @@ def _render_ll_etf_table(data: list) -> None:
                 "Company Name":   top3[i].company_name or top3[i].symbol,
                 ref_label:        getattr(top3[i], ref_col),
                 "Current Price":  top3[i].current_price,
-                "Prev Close":     top3[i].prev_close,
+                "Prev Close":     top3[i].prev_close if top3[i].prev_close is not None else float("nan"),
                 "% Day Change":   (
                     round((top3[i].current_price - top3[i].prev_close) / top3[i].prev_close * 100, 2)
-                    if (top3[i].current_price and top3[i].prev_close) else None
+                    if (top3[i].current_price and top3[i].prev_close) else float("nan")
                 ),
             }
             for i in range(len(top3))
@@ -8690,14 +8686,13 @@ def _render_eff():
 
     # Summary metrics
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Symbols Scanned", len(data))
+    _eff_sn = st.session_state.get("eff_active_scan_name", "")
+    _eff_sn_d = _eff_sn.rsplit(".", 1)[0] if _eff_sn and "." in _eff_sn else _eff_sn
+    c1.metric("Symbols Scanned", len(data), delta=_eff_sn_d or None, delta_color="off")
     c2.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
-    _eff_sn = st.session_state.get("eff_active_scan_name", "")
-    if _eff_sn:
-        st.caption(f"📁 Source: **{_eff_sn}**")
 
     # Refresh + Live buttons
     rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
@@ -8760,10 +8755,10 @@ def _render_eff_table(data: list) -> None:
                 "Company Name":   top3[i].company_name or top3[i].symbol,
                 ref_label:        getattr(top3[i], ref_col),
                 "Current Price":  top3[i].current_price,
-                "Prev Close":     top3[i].prev_close,
+                "Prev Close":     top3[i].prev_close if top3[i].prev_close is not None else float("nan"),
                 "% Day Change":   (
                     round((top3[i].current_price - top3[i].prev_close) / top3[i].prev_close * 100, 2)
-                    if (top3[i].current_price and top3[i].prev_close) else None
+                    if (top3[i].current_price and top3[i].prev_close) else float("nan")
                 ),
             }
             for i in range(len(top3))
