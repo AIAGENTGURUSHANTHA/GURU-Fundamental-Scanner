@@ -512,7 +512,7 @@ def _do_fetch(symbols: list, scan_name: str, save_to_history: bool = False,
     if save_to_history and st.session_state.user and results:
         user_phone = st.session_state.user["phone_number"]
         dicts = [r.model_dump() for r in results]
-        db.save_scan_session(user_phone, scan_name, dicts)
+        _save_scan(user_phone, scan_name, dicts)
 
 
 def _do_dma_fetch(symbols: list, scan_name: str, ref_date=None,
@@ -629,7 +629,7 @@ def _do_dma_fetch(symbols: list, scan_name: str, ref_date=None,
     if save_to_history and st.session_state.user and results:
         user_phone = st.session_state.user["phone_number"]
         dicts = [r.model_dump() for r in results]
-        db.save_scan_session(user_phone, scan_name, dicts, scan_type="dma")
+        _save_scan(user_phone, scan_name, dicts, scan_type="dma")
 
 
 def _load_ema_session(s: dict) -> None:
@@ -761,7 +761,7 @@ def _do_ema_fetch(symbols: list, scan_name: str, ref_date=None,
     if save_to_history and st.session_state.user and results:
         user_phone = st.session_state.user["phone_number"]
         dicts = [r.model_dump() for r in results]
-        db.save_scan_session(user_phone, scan_name, dicts, scan_type="ema")
+        _save_scan(user_phone, scan_name, dicts, scan_type="ema")
 
 
 def _load_guru_buy_session(s: dict) -> None:
@@ -886,7 +886,7 @@ def _do_guru_buy_fetch(symbols: list, scan_name: str, ref_date=None,
     if save_to_history and st.session_state.user and results:
         user_phone = st.session_state.user["phone_number"]
         dicts = [r.model_dump() for r in results]
-        db.save_scan_session(user_phone, scan_name, dicts, scan_type="guru_buy")
+        _save_scan(user_phone, scan_name, dicts, scan_type="guru_buy")
 
 
 def _load_smc_session(s: dict) -> None:
@@ -1057,7 +1057,7 @@ def _do_dd_fetch(symbols: list, scan_name: str, ref_date=None,
     if save_to_history:
         user_phone = st.session_state.user["phone_number"]
         dicts = [r.model_dump() for r in results]
-        db.save_scan_session(user_phone, scan_name, dicts, scan_type="daily_dukaan")
+        _save_scan(user_phone, scan_name, dicts, scan_type="daily_dukaan")
 
 
 def _do_smc_fetch(symbols: list, scan_name: str, ref_date=None,
@@ -1189,7 +1189,7 @@ def _do_smc_fetch(symbols: list, scan_name: str, ref_date=None,
     if save_to_history and st.session_state.user and results:
         user_phone = st.session_state.user["phone_number"]
         dicts = [r.model_dump() for r in results]
-        db.save_scan_session(user_phone, scan_name, dicts, scan_type="smc")
+        _save_scan(user_phone, scan_name, dicts, scan_type="smc")
 
 
 def _load_ll_etf_session(s: dict) -> None:
@@ -1326,7 +1326,7 @@ def _do_ll_etf_fetch(symbols: list, scan_name: str, ref_date=None,
     if save_to_history and st.session_state.user and results:
         user_phone = st.session_state.user["phone_number"]
         dicts = [r.model_dump() for r in results]
-        db.save_scan_session(user_phone, scan_name, dicts, scan_type="ll_etf")
+        _save_scan(user_phone, scan_name, dicts, scan_type="ll_etf")
 
 
 def _load_eff_session(s: dict) -> None:
@@ -1463,7 +1463,7 @@ def _do_eff_fetch(symbols: list, scan_name: str, ref_date=None,
     if save_to_history and st.session_state.user and results:
         user_phone = st.session_state.user["phone_number"]
         dicts = [r.model_dump() for r in results]
-        db.save_scan_session(user_phone, scan_name, dicts, scan_type="eff")
+        _save_scan(user_phone, scan_name, dicts, scan_type="eff")
 
 
 def _do_etf_live_fetch() -> None:
@@ -1530,16 +1530,32 @@ def _do_etf_ema_fetch(symbols: list, scan_name: str, ref_date=None,
 
 # ── Login ─────────────────────────────────────────────────────────────────────
 
+_SHARED_PHONE     = "__SHARED__"
+_SHARED_SCAN_NAME = "__shared_default__"
+
+
+def _save_scan(user_phone: str, scan_name: str, dicts: list,
+               scan_type: str = "fundamentals") -> None:
+    """Save scan for the user. If the user is admin, also upsert a shared default
+    so every other user sees the same data on first load (and after any crash/redeploy)."""
+    db.save_scan_session(user_phone, scan_name, dicts, scan_type=scan_type)
+    if st.session_state.get("user", {}).get("is_admin"):
+        db.save_scan_session(_SHARED_PHONE, _SHARED_SCAN_NAME, dicts, scan_type=scan_type)
+
+
 def _auto_restore_scan(data_key: str, load_fn, scan_type: str) -> None:
     """
     If `data_key` in session state is empty (e.g. after a page refresh),
     silently load the most recent saved scan of `scan_type` from the database.
+    Falls back to the shared admin-uploaded default when the user has no saved scan.
     This lets users see their last results without re-fetching.
     """
     if not st.session_state.get(data_key) and st.session_state.get("user"):
-        recent = db.get_scan_sessions(
-            st.session_state.user["phone_number"], limit=1, scan_type=scan_type
-        )
+        user_phone = st.session_state.user["phone_number"]
+        recent = db.get_scan_sessions(user_phone, limit=1, scan_type=scan_type)
+        if not recent:
+            # No personal scan — load the shared default uploaded by admin
+            recent = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type=scan_type)
         if recent:
             load_fn(recent[0])
 
@@ -1751,7 +1767,15 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No saved scans yet.")
+                _shared = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="fundamentals")
+                if _shared:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="fundamentals")
+                    if _sh:
+                        st.caption("📌 Admin default data loaded automatically.")
+                    else:
+                        st.caption("No saved scans yet.")
             st.markdown("---")
 
         elif st.session_state.section == "technicals":
@@ -1776,7 +1800,11 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No DMA scans saved yet.")
+                _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="dma")
+                if _sh:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    st.caption("No DMA scans saved yet.")
 
             st.markdown("### 📈 My EMA Scans")
             ema_sessions = db.get_scan_sessions(user_phone, limit=15, scan_type="ema")
@@ -1797,7 +1825,11 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No EMA scans saved yet.")
+                _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="ema")
+                if _sh:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    st.caption("No EMA scans saved yet.")
             st.markdown("### 🟢 My GURU BUY Scans")
             guru_sessions = db.get_scan_sessions(user_phone, limit=15, scan_type="guru_buy")
             if guru_sessions:
@@ -1817,7 +1849,11 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No GURU BUY scans saved yet.")
+                _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="guru_buy")
+                if _sh:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    st.caption("No GURU BUY scans saved yet.")
 
             st.markdown("### 💹 My SMC Zone Scans")
 
@@ -1853,7 +1889,11 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No SMC Zone scans saved yet.")
+                _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="smc")
+                if _sh:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    st.caption("No SMC Zone scans saved yet.")
             st.markdown("---")
 
         elif st.session_state.section == "guru_smart_business":
@@ -1877,7 +1917,11 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No Daily Dukaan scans saved yet.")
+                _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="daily_dukaan")
+                if _sh:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    st.caption("No Daily Dukaan scans saved yet.")
 
             st.markdown("### 🌱 My Life Long ETF Scans")
             ll_sessions = db.get_scan_sessions(user_phone, limit=15, scan_type="ll_etf")
@@ -1898,7 +1942,11 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No Life Long ETF scans saved yet.")
+                _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="ll_etf")
+                if _sh:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    st.caption("No Life Long ETF scans saved yet.")
 
             st.markdown("### 🌳 My Eshwarana Fruit Forest Scans")
             eff_sessions = db.get_scan_sessions(user_phone, limit=15, scan_type="eff")
@@ -1919,7 +1967,11 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No Eshwarana Fruit Forest scans saved yet.")
+                _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="eff")
+                if _sh:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    st.caption("No Eshwarana Fruit Forest scans saved yet.")
             st.markdown("---")
 
         elif st.session_state.section == "rsi_screener":
@@ -1943,7 +1995,11 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No Stock RSI scans saved yet.")
+                _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="rsi_stock")
+                if _sh:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    st.caption("No Stock RSI scans saved yet.")
 
             st.markdown("### 📉 My ETF RSI Scans")
             rsi_e_sessions = db.get_scan_sessions(user_phone, limit=15, scan_type="rsi_etf")
@@ -1964,7 +2020,11 @@ def render_sidebar():
                             db.delete_scan_session(s["id"], user_phone)
                             st.rerun()
             else:
-                st.caption("No ETF RSI scans saved yet.")
+                _sh = db.get_scan_sessions(_SHARED_PHONE, limit=1, scan_type="rsi_etf")
+                if _sh:
+                    st.caption("📌 Admin default data loaded automatically.")
+                else:
+                    st.caption("No ETF RSI scans saved yet.")
             st.markdown("---")
 
         if st.button("🚪 Logout", use_container_width=True):
@@ -6187,7 +6247,7 @@ def _do_rsi_fetch(prefix: str, symbols: list, scan_name: str,
         user_phone = st.session_state.user["phone_number"]
         scan_type  = "rsi_stock" if prefix == "rsi_stock" else "rsi_etf"
         dicts = [r.model_dump() for r in results]
-        db.save_scan_session(user_phone, scan_name, dicts, scan_type=scan_type)
+        _save_scan(user_phone, scan_name, dicts, scan_type=scan_type)
 
 
 def render_rsi_screener():
