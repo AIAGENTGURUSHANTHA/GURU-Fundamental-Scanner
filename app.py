@@ -6849,10 +6849,13 @@ def _render_rsi_tab(prefix: str, label: str, sample_syms: list) -> None:
     all_dates  = [d.ref_date for d in valid if d.ref_date]
     latest_ref = max(all_dates) if all_dates else "—"
 
-    c1, c2, c3, c4 = st.columns(4)
     _rsi_sn = st.session_state.get(f"{prefix}_active_scan_name", "")
     _rsi_sn_d = _rsi_sn.rsplit(".", 1)[0] if _rsi_sn and "." in _rsi_sn else _rsi_sn
-    c1.metric("Symbols Scanned", len(data), delta=_rsi_sn_d or None, delta_color="off")
+    if _rsi_sn_d:
+        _rsc1, _ = st.columns([1, 2])
+        _rsc1.metric("📁 Data Source", _rsi_sn_d)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Symbols Scanned", len(data))
     c2.metric("Trading Day",     latest_ref)
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
@@ -7276,15 +7279,17 @@ def _render_base_price_tab(tab_key: str) -> None:
     sell_3yr = [d for d in valid_data if d.get("diff_3yr") is not None and d["diff_3yr"] >= 0]
     sell_5yr = [d for d in valid_data if d.get("diff_5yr") is not None and d["diff_5yr"] >= 0]
 
+    _src_disp = source_name.rsplit(".", 1)[0] if source_name and "." in source_name else source_name
+    if _src_disp:
+        _bsc1, _ = st.columns([1, 2])
+        _bsc1.metric("📁 Data Source", _src_disp)
+
     mc1, mc2, mc3, mc4 = st.columns(4)
     mc1.metric("🟢 3yr Buy Signals",  len(buy_3yr))
     mc2.metric("🟢 5yr Buy Signals",  len(buy_5yr))
     mc3.metric("🔴 3yr Don't Buy",    len(sell_3yr))
     mc4.metric("🔴 5yr Don't Buy",    len(sell_5yr))
 
-    if source_name:
-        _src_disp = source_name.rsplit(".", 1)[0] if "." in source_name else source_name
-        st.caption(f"📁 Source: **{_src_disp}**")
     if fetched_at:
         st.caption(f"🕐 Fetched at {fetched_at.strftime('%d %b %Y %H:%M:%S')}")
 
@@ -7884,11 +7889,14 @@ def _render_daily_dukaan():
     fetched_at = st.session_state.get("dd_last_fetched_at")
     valid      = [d for d in data if not d.error]
 
-    # Summary metrics
-    c1, c2, c3, c4 = st.columns(4)
     _dd_sn = st.session_state.get("dd_active_scan_name", "")
     _dd_sn_d = _dd_sn.rsplit(".", 1)[0] if _dd_sn and "." in _dd_sn else _dd_sn
-    c1.metric("Symbols Scanned", len(data), delta=_dd_sn_d or None, delta_color="off")
+    if _dd_sn_d:
+        _dsc1, _ = st.columns([1, 2])
+        _dsc1.metric("📁 Data Source", _dd_sn_d)
+    # Summary metrics
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Symbols Scanned", len(data))
     c2.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
@@ -8294,11 +8302,14 @@ def _render_ll_etf():
     else:
         latest_ref = "—"
 
-    # Summary metrics
-    c1, c2, c3, c4 = st.columns(4)
     _ll_sn = st.session_state.get("ll_etf_active_scan_name", "")
     _ll_sn_d = _ll_sn.rsplit(".", 1)[0] if _ll_sn and "." in _ll_sn else _ll_sn
-    c1.metric("Symbols Scanned", len(data), delta=_ll_sn_d or None, delta_color="off")
+    if _ll_sn_d:
+        _lsc1, _ = st.columns([1, 2])
+        _lsc1.metric("📁 Data Source", _ll_sn_d)
+    # Summary metrics
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Symbols Scanned", len(data))
     c2.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
@@ -8684,11 +8695,14 @@ def _render_eff():
     else:
         latest_ref = "—"
 
-    # Summary metrics
-    c1, c2, c3, c4 = st.columns(4)
     _eff_sn = st.session_state.get("eff_active_scan_name", "")
     _eff_sn_d = _eff_sn.rsplit(".", 1)[0] if _eff_sn and "." in _eff_sn else _eff_sn
-    c1.metric("Symbols Scanned", len(data), delta=_eff_sn_d or None, delta_color="off")
+    if _eff_sn_d:
+        _esc1, _ = st.columns([1, 2])
+        _esc1.metric("📁 Data Source", _eff_sn_d)
+    # Summary metrics
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Symbols Scanned", len(data))
     c2.metric("Trading Day",     latest_ref, help=f"Trading day used for analysis: {latest_ref}")
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
