@@ -357,10 +357,12 @@ def _live_btn(tab_prefix: str, refresh_key: str, btn_key: str) -> None:
 def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
     """
     Fetch live traded prices from NSE India only.
-    Two-layer approach — both layers hit nseindia.com directly:
-      1a. GetQuoteApi with series=EQ  (equity stocks)
-      1b. GetQuoteApi without series  (ETFs / other series not covered by EQ)
-      2.  nsepython nse_eq()          (uses NSE's equity-quote page API)
+    Four-layer approach (each fills in what the previous missed):
+      1a. GetQuoteApi series=EQ    (equity stocks)
+      1b. GetQuoteApi no series    (ETFs / other series)
+      2.  nsepython nse_eq()       (NSE equity-quote page — equities)
+      3.  NSE /api/etf             (bulk ETF endpoint — catches all ETF symbols)
+      4.  yfinance {sym}.NS        (last-resort for any still-missing symbols)
     Returns {symbol: {"price": float, "time": str}}.
     """
     out: dict = {}
@@ -382,12 +384,10 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
             return price, ts
 
         for sym in symbols:
-            # 1a: EQ series (works for most equity stocks)
             _got = False
             for _url in (
                 f"https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
                 f"?functionName=getSymbolData&marketType=N&series=EQ&symbol={sym}",
-                # 1b: no series filter — catches ETFs, bonds, other series
                 f"https://www.nseindia.com/api/NextApi/apiClient/GetQuoteApi"
                 f"?functionName=getSymbolData&marketType=N&symbol={sym}",
             ):
@@ -428,6 +428,53 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                             "price": float(str(_px).replace(",", "")),
                             "time":  _d.get("metadata", {}).get("lastUpdateTime", "nse_eq"),
                         }
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # ── Layer 3: NSE /api/etf bulk endpoint — covers all ETF symbols ─────────
+    _missing = [s for s in symbols if s not in out]
+    if _missing:
+        try:
+            from nsepython.rahu import _get_nse_session, headers as _nse_headers
+            _sess3 = _get_nse_session()
+            _resp3 = _sess3.get(
+                "https://www.nseindia.com/api/etf",
+                headers=_nse_headers, timeout=12,
+            )
+            if _resp3.status_code == 200:
+                _etf_data = _resp3.json().get("data", [])
+                _etf_map  = {}
+                for _row in _etf_data:
+                    _s = str(_row.get("symbol", "")).upper()
+                    _p = _row.get("lastPrice") or _row.get("last")
+                    if _s and _p is not None:
+                        _etf_map[_s] = float(str(_p).replace(",", ""))
+                for sym in _missing:
+                    if sym.upper() in _etf_map:
+                        out[sym] = {"price": _etf_map[sym.upper()], "time": "nse_etf"}
+        except Exception:
+            pass
+
+    # ── Layer 4: yfinance {sym}.NS — last-resort fallback ────────────────────
+    _missing = [s for s in symbols if s not in out]
+    if _missing:
+        try:
+            import yfinance as _yf
+            for sym in _missing:
+                try:
+                    _tk   = _yf.Ticker(f"{sym}.NS")
+                    _hist = _tk.history(period="1d", interval="1m")
+                    if not _hist.empty:
+                        _px = float(_hist["Close"].iloc[-1])
+                        out[sym] = {"price": _px, "time": "yfinance"}
+                    else:
+                        # Try fast_info as fallback
+                        _fi = _tk.fast_info
+                        _px = getattr(_fi, "last_price", None)
+                        if _px:
+                            out[sym] = {"price": float(_px), "time": "yfinance"}
                 except Exception:
                     pass
         except Exception:
@@ -5621,6 +5668,12 @@ def _render_holdings_tab(asset_type: str) -> None:
             st.session_state["holdings_live_prices"] = _new
             st.session_state[_fkey] = datetime.now(IST)
             live_prices = _new
+            _still_missing = [s for s in _open_syms if s not in live_prices]
+            if _still_missing:
+                st.warning(
+                    f"⚠️ Could not fetch live price for: {', '.join(_still_missing)}. "
+                    "NSE may be unavailable — try Refresh Now in a moment."
+                )
         else:
             # Prices are fresh — schedule an auto-rerun in 5 min so the page
             # refreshes automatically even without user interaction
