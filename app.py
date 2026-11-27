@@ -5222,24 +5222,42 @@ def _portfolio_metrics_html(buy_cnt, sell_cnt, total_invested,
             f'</div>'
         )
 
-    # Current price card
+    # Current price card — date and time shown separately, one below another
     price_card = ""
     if cur_price and cur_price > 0:
-        ts_str = ""
+        date_str = time_str = ""
         if price_ts:
             try:
-                ts_str = price_ts.strftime("%d-%b %H:%M")
+                date_str = price_ts.strftime("%d-%b-%Y")
+                time_str = price_ts.strftime("%H:%M:%S")
             except Exception:
-                ts_str = str(price_ts)[:16]
-        price_card = card("Live Price", f"₹{cur_price:,.2f}",
-                          vc=("#38bdf8" if dark else "#0369a1"),
-                          sub=ts_str)
+                date_str = str(price_ts)[:10]
+                time_str = str(price_ts)[11:19]
+        ts_html = ""
+        if date_str:
+            ts_html = (f'<div style="font-size:0.6rem;color:{lbl_c};margin-top:3px;">{date_str}</div>'
+                       f'<div style="font-size:0.6rem;color:{lbl_c};">{time_str}</div>')
+        price_card = (
+            f'<div style="background:{card_bg};border:1px solid {card_bdr};border-radius:12px;'
+            f'padding:0.9rem 1rem;text-align:center;flex:1;min-width:110px;">'
+            f'<div style="font-size:0.65rem;font-weight:600;text-transform:uppercase;'
+            f'letter-spacing:0.07em;color:{lbl_c};margin-bottom:5px;">Live Price</div>'
+            f'<div style="font-size:1.5rem;font-weight:800;color:{"#38bdf8" if dark else "#0369a1"};line-height:1.1;">'
+            f'₹{cur_price:,.2f}</div>'
+            + ts_html +
+            f'</div>'
+        )
 
-    # Net qty / sold qty card
-    qty_card = card(
-        "Net Qty · Sold",
-        f"{net_qty:,.0f}",
-        sub=f"Sold: {sold_qty:,.0f} units",
+    # Net Qty / Sold Qty card — two-line layout
+    qty_card = (
+        f'<div style="background:{card_bg};border:1px solid {card_bdr};border-radius:12px;'
+        f'padding:0.9rem 1rem;text-align:center;flex:1;min-width:110px;">'
+        f'<div style="font-size:0.65rem;font-weight:600;text-transform:uppercase;'
+        f'letter-spacing:0.07em;color:{lbl_c};margin-bottom:5px;">Net Qty</div>'
+        f'<div style="font-size:1.5rem;font-weight:800;color:{val_c};line-height:1.1;">{net_qty:,.0f} Units</div>'
+        f'<div style="font-size:0.65rem;color:{lbl_c};margin-top:3px;font-weight:600;">'
+        f'Sold Qty: {sold_qty:,.0f} Units</div>'
+        f'</div>'
     )
 
     show_alert = virt_priced > 0 and virt_pnl > 1000
@@ -5266,7 +5284,7 @@ def _portfolio_metrics_html(buy_cnt, sell_cnt, total_invested,
             f'border-radius:12px;padding:0.9rem 1.1rem;text-align:center;flex:1.5;min-width:160px;'
             f'box-shadow:0 4px 20px rgba(124,58,237,0.35);">'
             f'<div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:0.07em;color:rgba(255,255,255,0.75);margin-bottom:4px;">📊 Qty to Book</div>'
+            f'letter-spacing:0.07em;color:rgba(255,255,255,0.75);margin-bottom:4px;">📊 Qty to SELL</div>'
             f'<div style="font-size:1.5rem;font-weight:900;color:#fff;line-height:1.1;">{qty_book} units</div>'
             f'<div style="font-size:0.65rem;color:rgba(255,255,255,0.8);margin-top:3px;">'
             f'Sell {qty_book} units to lock profit</div>'
