@@ -5134,8 +5134,8 @@ def _holding_pnl(h: dict, live_prices: dict) -> tuple:
         sell_qty   = float(h.get("sell_qty") or h.get("buy_qty") or 0)
         sell_price = float(h.get("sell_price") or 0)
         invested   = buy_price * sell_qty
-        pnl_amt    = round(sell_price * sell_qty - invested, 2)
-        pnl_pct    = round((pnl_amt / invested * 100) if invested else 0, 2)
+        pnl_amt    = round(sell_price * sell_qty, 2)              # Booked Profit = total sell proceeds
+        pnl_pct    = round(((sell_price - buy_price) / buy_price * 100) if buy_price else 0, 2)  # actual gain %
         try:
             d1   = _date.fromisoformat(h["buy_date"])
             d2   = _date.fromisoformat(h["sell_date"])
@@ -5149,8 +5149,8 @@ def _holding_pnl(h: dict, live_prices: dict) -> tuple:
         s_qty    = float(h["sell_qty"])
         invested = buy_price * s_qty
         sell_val = float(h["sell_price"]) * s_qty
-        pnl_amt  = round(sell_val - invested, 2)
-        pnl_pct  = round((pnl_amt / invested * 100) if invested else 0, 2)
+        pnl_amt  = round(sell_val, 2)                                                      # total sell proceeds
+        pnl_pct  = round(((float(h["sell_price"]) - buy_price) / buy_price * 100) if buy_price else 0, 2)
         try:
             d1   = _date.fromisoformat(h["buy_date"])
             d2   = _date.fromisoformat(h["sell_date"])
@@ -5389,11 +5389,14 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
 
     sym_lines = []
     for sym, g in groups.items():
-        pct = (g["total_pnl"] / g["invest"] * 100) if g["invest"] else 0
+        # actual gain % = (sell_total - buy_cost) / buy_cost × 100
+        actual_gain = g["total_pnl"] - g["invest"]
+        pct = (actual_gain / g["invest"] * 100) if g["invest"] else 0
         txn_detail = " · ".join(
-            (lambda sp, sq: f"₹{sp:,.2f}×{sq:,.0f}=₹{sp*sq:,.2f} (P&L ₹{pa:+,.2f})")(
+            (lambda sp, sq, bp: f"₹{sp:,.2f}×{sq:,.0f}=₹{sp*sq:,.2f} (Gain ₹{(sp-bp)*sq:+,.2f})")(
                 float(h.get('sell_price') or 0),
-                float(h.get('sell_qty') or h.get('buy_qty') or 0)
+                float(h.get('sell_qty') or h.get('buy_qty') or 0),
+                float(h.get('buy_price') or 0),
             )
             for h, pa, _pp in g["entries"]
         )
@@ -5406,9 +5409,9 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
             f'</div>'
         )
 
-    total_txns = sum(len(g["entries"]) for g in groups.values())
-    pct_total  = (total_booked / sum(g["invest"] for g in groups.values()) * 100) \
-                 if sum(g["invest"] for g in groups.values()) else 0
+    total_txns    = sum(len(g["entries"]) for g in groups.values())
+    _total_buy    = sum(g["invest"] for g in groups.values())
+    pct_total     = ((total_booked - _total_buy) / _total_buy * 100) if _total_buy else 0
 
     # Build detailed transaction rows for the collapsible section
     th_style = (f'style="padding:5px 8px;text-align:left;font-size:0.72rem;font-weight:700;'
@@ -5422,7 +5425,8 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
         sell_px  = float(h.get("sell_price") or 0)
         sqty     = float(h.get("sell_qty") or h.get("buy_qty") or 0)
         ppu      = sell_px - buy_px
-        pnl_clr  = ("#4ade80" if dark else "#16a34a") if (pa or 0) >= 0 else ("#f87171" if dark else "#dc2626")
+        gain_amt = round(ppu * sqty, 2)                              # actual gain = (sell-buy)×qty
+        gain_clr = ("#4ade80" if dark else "#16a34a") if gain_amt >= 0 else ("#f87171" if dark else "#dc2626")
         ppu_clr  = ("#4ade80" if dark else "#16a34a") if ppu >= 0 else ("#f87171" if dark else "#dc2626")
         pct_str  = f"{pp:+.2f}%" if pp is not None else "—"
         row_bg   = row_alt if i % 2 == 0 else "transparent"
@@ -5436,8 +5440,9 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
             f'<td {td}>₹{sell_px:,.2f}</td>'
             f'<td {td}><span style="color:{ppu_clr};font-weight:600;">₹{ppu:+,.2f}</span></td>'
             f'<td {td}>{sqty:,.0f}</td>'
-            f'<td {td}><span style="color:{pnl_clr};font-weight:700;">₹{pa:+,.2f}</span></td>'
-            f'<td {td}><span style="color:{pnl_clr};">{pct_str}</span></td>'
+            f'<td {td}><span style="font-weight:700;">₹{pa:,.2f}</span></td>'
+            f'<td {td}><span style="color:{gain_clr};">₹{gain_amt:+,.2f}</span></td>'
+            f'<td {td}><span style="color:{gain_clr};">{pct_str}</span></td>'
             f'</tr>'
         )
 
@@ -5456,8 +5461,9 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
         f'<th {th_style}>Sell Price</th>'
         f'<th {th_style}>Profit/Unit</th>'
         f'<th {th_style}>Qty</th>'
-        f'<th {th_style}>P&L (₹)</th>'
-        f'<th {th_style}>P&L %</th>'
+        f'<th {th_style}>Booked (₹)</th>'
+        f'<th {th_style}>Net Gain (₹)</th>'
+        f'<th {th_style}>Gain %</th>'
         f'</tr></thead>'
         f'<tbody>' + "".join(detail_rows) + f'</tbody>'
         f'</table>'
@@ -5749,7 +5755,7 @@ def _render_holdings_tab(asset_type: str) -> None:
         # Metric strip — booked profit + optional orange alert
         total_invested    = sum(h["buy_price"] * h["buy_qty"] for h in buy_rows)
         total_booked_pnl  = sum(
-            (float(h.get("sell_price") or 0) - float(h.get("buy_price") or 0))
+            float(h.get("sell_price") or 0)
             * float(h.get("sell_qty") or h.get("buy_qty") or 0)
             for h in sell_rows
         )
@@ -6216,7 +6222,7 @@ def _render_holdings_tab(asset_type: str) -> None:
             _spx = float(_h.get("sell_price") or 0)
             _bpx = float(_h.get("buy_price")  or 0)
             _sym_stats[_sym]["sell_qty"]      += _sqt
-            _sym_stats[_sym]["booked_profit"] += round((_spx - _bpx) * _sqt, 2)
+            _sym_stats[_sym]["booked_profit"] += round(_spx * _sqt, 2)   # sell_price × sell_qty
 
     rows = []
     for h in holdings:
