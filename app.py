@@ -6181,11 +6181,12 @@ def _render_holdings_tab(asset_type: str) -> None:
             "Txn":             t_type,
             "Symbol":          h["symbol"],
             "Company":         h["company_name"] or h["symbol"],
-            "Buy Date":        h["buy_date"],
-            "Buy Price (₹)":   h["buy_price"],
-            "Qty":             h["buy_qty"],
-            "Invested (₹)":    round(float(h["buy_price"] or 0) * float(h["buy_qty"] or 0), 2),
-            "Remaining":       remaining if t_type == "BUY" else None,
+            "Buy Date":        h["buy_date"]              if t_type == "BUY"  else None,
+            "Buy Price (₹)":   h["buy_price"]             if t_type == "BUY"  else None,
+            "Qty":             h["buy_qty"]               if t_type == "BUY"  else None,
+            "Invested (₹)":    round(float(h["buy_price"] or 0) * float(h["buy_qty"] or 0), 2)
+                               if t_type == "BUY" else None,
+            "Remaining":       remaining                  if t_type == "BUY"  else None,
             "Base Inv (₹)":    _base_inv,
             "Avg Price (₹)":   _avg_px,
             "Net Qty":         _net_qty,
@@ -6195,10 +6196,11 @@ def _render_holdings_tab(asset_type: str) -> None:
             "P&L %":           pnl_pct   if t_type == "BUY"  else None,
             "Booked Profit (₹)": pnl_amt if t_type == "SELL" else None,
             "Total Booked Profit (₹)": _ss["booked_profit"],
-            "Days":            days,
+            "Days":            days                       if t_type == "BUY"  else None,
             "Sell Date":       h.get("sell_date") or "—",
             "Sell Price (₹)":  h.get("sell_price"),
-            "Sell Qty":        h.get("sell_qty"),
+            "Sell Qty":        float(h.get("sell_qty") or h.get("buy_qty") or 0)
+                               if t_type == "SELL" else None,
         })
 
     df = pd.DataFrame(rows)
