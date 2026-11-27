@@ -7218,6 +7218,11 @@ def _render_base_price_tab(tab_key: str) -> None:
                         if d["sma_5yr"]:
                             d["diff_5yr"]     = round(cp - d["sma_5yr"], 2)
                             d["diff_5yr_pct"] = round((d["diff_5yr"] / d["sma_5yr"] * 100), 2)
+        _INF = float("inf")
+        data.sort(key=lambda d: (
+            d.get("diff_3yr_pct") if d.get("diff_3yr_pct") is not None else _INF,
+            d.get("diff_5yr_pct") if d.get("diff_5yr_pct") is not None else _INF,
+        ))
         st.session_state[data_key]  = data
         st.session_state[fetch_key] = datetime.now()
         st.session_state[name_key]  = scan_name
@@ -7252,6 +7257,11 @@ def _render_base_price_tab(tab_key: str) -> None:
                         if _d.get("sma_5yr"):
                             _d["diff_5yr"]     = round(_cp - _d["sma_5yr"], 2)
                             _d["diff_5yr_pct"] = round((_d["diff_5yr"] / _d["sma_5yr"] * 100), 2)
+            _INF2 = float("inf")
+            data.sort(key=lambda d: (
+                d.get("diff_3yr_pct") if d.get("diff_3yr_pct") is not None else _INF2,
+                d.get("diff_5yr_pct") if d.get("diff_5yr_pct") is not None else _INF2,
+            ))
             st.session_state[data_key]  = data
             st.session_state[fetch_key] = datetime.now()
 
