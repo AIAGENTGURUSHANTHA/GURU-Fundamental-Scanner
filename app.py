@@ -7377,6 +7377,12 @@ def _render_base_price_tab(tab_key: str) -> None:
 
     if tbl_rows:
         tbl_df = pd.DataFrame(tbl_rows)
+        # Sort: primary by 3yr diff %, secondary by 5yr diff % — ascending (most negative = best buy first)
+        tbl_df = tbl_df.sort_values(
+            by=["Diff vs 3yr %", "Diff vs 5yr %"],
+            ascending=[True, True],
+            na_position="last",
+        ).reset_index(drop=True)
 
         def _style_bps_table(df):
             styles = pd.DataFrame("", index=df.index, columns=df.columns)
