@@ -585,6 +585,35 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
         except Exception:
             pass
 
+    # ── Layer 5: Yahoo Finance (.NS = NSE India data) — covers ETFs ──────────
+    _missing5 = [s for s in symbols if s not in out]
+    if _missing5:
+        try:
+            import yfinance as _yf5
+
+            def _l5_fetch(sym: str) -> None:
+                try:
+                    _t5  = _yf5.Ticker(f"{sym}.NS")
+                    _fi5 = _t5.fast_info
+                    _px5 = getattr(_fi5, "last_price", None)
+                    if _px5 is None or float(_px5) <= 0:
+                        return
+                    _pc5_raw = getattr(_fi5, "previous_close", None)
+                    _pc5 = round(float(_pc5_raw), 2) if _pc5_raw else None
+                    with _lock:
+                        out[sym] = {
+                            "price":      round(float(_px5), 2),
+                            "time":       "NSE Close",
+                            "prev_close": _pc5,
+                        }
+                except Exception:
+                    pass
+
+            with ThreadPoolExecutor(max_workers=20) as _ex5:
+                list(_ex5.map(_l5_fetch, _missing5))
+        except Exception:
+            pass
+
     return out
 
 

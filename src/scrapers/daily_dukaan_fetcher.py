@@ -2,8 +2,9 @@
 Daily Dukaan Fetcher.
 
 Fetches current price and 20-day SMA for NSE-listed stocks and ETFs.
-Data source: NSE India only (via nsepython). No yfinance price data.
-Company names are still fetched from yfinance as metadata (no price data).
+Primary data source: NSE India via nsepython (equity series).
+Fallback for ETFs: Yahoo Finance (.NS suffix mirrors NSE India data).
+Company names are fetched from yfinance ticker info and cached.
 
 Speed notes:
   - _HIST_DAYS kept < 40 so nsepython makes exactly 1 HTTP request per symbol
@@ -43,8 +44,11 @@ class DailyDukaanFetcher:
     # ── Fetch strategies ──────────────────────────────────────────────────────
 
     def _fetch_one(self, sym: str, ref_date: date) -> DailyDukaanData:
-        """NSE India only (nsepython). No yfinance price fallback."""
+        """Try NSE India (equity series); fall back to Yahoo Finance for ETFs."""
         result = self._fetch_nsepython(sym, ref_date)
+        if result and not result.error:
+            return result
+        result = self._fetch_yfinance(sym, ref_date)
         if result and not result.error:
             return result
         return DailyDukaanData(
@@ -72,6 +76,20 @@ class DailyDukaanFetcher:
 
             company_name = self._get_company_name(sym)
             return self._calc(sym, company_name, df, ref_date, source="NSE India")
+        except Exception:
+            return None
+
+    def _fetch_yfinance(self, sym: str, ref_date: date) -> Optional[DailyDukaanData]:
+        """Fallback for ETFs: Yahoo Finance .NS mirrors NSE India data."""
+        try:
+            t    = yf.Ticker(f"{sym}.NS")
+            hist = t.history(period="35d", interval="1d", auto_adjust=True)
+            if hist is None or hist.empty:
+                return None
+            if hist.index.tz is not None:
+                hist.index = hist.index.tz_convert(None)
+            company_name = self._get_company_name(sym, ticker=t)
+            return self._calc(sym, company_name, hist, ref_date, source="NSE India")
         except Exception:
             return None
 
