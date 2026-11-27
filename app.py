@@ -415,13 +415,12 @@ def _live_btn(tab_prefix: str, refresh_key: str, btn_key: str) -> None:
 
 def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
     """
-    Fetch live traded prices from NSE India only.
-    Five-layer approach — each layer runs in parallel across symbols:
-      1. GetQuoteApi series=EQ / no-series  (equity stocks)
+    Fetch live prices from NSE India only — no yfinance fallback.
+    Four parallel layers:
+      1. GetQuoteApi series=EQ / no-series  (equity stocks & some ETFs)
       2. nsepython nse_eq()                  (NSE equity-quote page)
       3. NSE /api/etf                        (bulk ETF endpoint — single request)
-      4. yfinance {sym}.NS                   (last-resort for any still-missing)
-      5. yfinance prev_close top-up          (symbols with price but no prev_close)
+      4. NSE /api/quote-equity               (direct quote for still-missing symbols)
     Returns {symbol: {"price": float, "time": str, "prev_close": float|None}}.
     """
     import threading
@@ -546,75 +545,43 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
         except Exception:
             pass
 
-    # ── Layer 4: Parallel yfinance — last-resort fallback ────────────────────
+    # ── Layer 4: NSE /api/quote-equity — direct quote for still-missing ───────
     _missing4 = [s for s in symbols if s not in out]
     if _missing4:
         try:
-            import yfinance as _yf4
-            from datetime import date as _d4_cls
+            from nsepython.rahu import _get_nse_session, headers as _nse_headers
+            _sess4 = _get_nse_session()
 
             def _l4_fetch(sym: str) -> None:
-                try:
-                    _tk   = _yf4.Ticker(f"{sym}.NS")
-                    _hist = _tk.history(period="5d")
-                    if not _hist.empty:
-                        _px = float(_hist["Close"].iloc[-1])
-                        _pc = float(_hist["Close"].iloc[-2]) if len(_hist) >= 2 else None
-                        with _lock:
-                            out[sym] = {"price": _px, "time": "yfinance", "prev_close": _pc}
-                    else:
-                        _fi  = _tk.fast_info
-                        _px  = getattr(_fi, "last_price", None)
-                        _fpc = getattr(_fi, "previous_close", None)
-                        if _px:
-                            with _lock:
-                                out[sym] = {
-                                    "price":      float(_px),
-                                    "time":       "yfinance",
-                                    "prev_close": round(float(_fpc), 2) if _fpc else None,
-                                }
-                except Exception:
-                    pass
-
-            with ThreadPoolExecutor(max_workers=15) as _ex4:
-                list(_ex4.map(_l4_fetch, _missing4))
-        except Exception:
-            pass
-
-    # ── Layer 5: Parallel prev_close top-up ──────────────────────────────────
-    _missing5 = [s for s in symbols if s in out and out[s].get("prev_close") is None]
-    if _missing5:
-        try:
-            import yfinance as _yf5
-            from datetime import date as _d5_cls
-
-            def _l5_fetch(sym: str) -> None:
-                try:
-                    _tk = _yf5.Ticker(f"{sym}.NS")
-                    # fast_info.previous_close: single lightweight call, no date guessing
+                for _url in (
+                    f"https://www.nseindia.com/api/quote-equity?symbol={sym}&series=EQ",
+                    f"https://www.nseindia.com/api/quote-equity?symbol={sym}",
+                ):
                     try:
-                        _fi  = _tk.fast_info
-                        _fpc = getattr(_fi, "previous_close", None)
-                        if _fpc and float(_fpc) > 0:
-                            with _lock:
-                                out[sym]["prev_close"] = round(float(_fpc), 2)
-                            return
+                        _r = _sess4.get(_url, headers=_nse_headers, timeout=8)
+                        if _r.status_code == 200:
+                            _j   = _r.json()
+                            _pi  = _j.get("priceInfo") or {}
+                            _px  = _pi.get("lastPrice") or _pi.get("close")
+                            if _px is not None:
+                                _pc_raw = _pi.get("previousClose")
+                                try:
+                                    _pc = round(float(str(_pc_raw).replace(",", "")), 2) if _pc_raw else None
+                                except Exception:
+                                    _pc = None
+                                _ts = (_j.get("metadata") or {}).get("lastUpdateTime", "nse_quote")
+                                with _lock:
+                                    out[sym] = {
+                                        "price":      float(str(_px).replace(",", "")),
+                                        "time":       str(_ts),
+                                        "prev_close": _pc,
+                                    }
+                                return
                     except Exception:
                         pass
-                    # Fallback: daily history with correct bar-index logic
-                    _hist = _tk.history(period="5d")
-                    if not _hist.empty and len(_hist) >= 2:
-                        if _hist.index[-1].date() < _d5_cls.today():
-                            _pc = round(float(_hist["Close"].iloc[-1]), 2)
-                        else:
-                            _pc = round(float(_hist["Close"].iloc[-2]), 2)
-                        with _lock:
-                            out[sym]["prev_close"] = _pc
-                except Exception:
-                    pass
 
-            with ThreadPoolExecutor(max_workers=15) as _ex5:
-                list(_ex5.map(_l5_fetch, _missing5))
+            with ThreadPoolExecutor(max_workers=20) as _ex4:
+                list(_ex4.map(_l4_fetch, _missing4))
         except Exception:
             pass
 
