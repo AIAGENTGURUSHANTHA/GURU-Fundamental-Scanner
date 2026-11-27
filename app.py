@@ -557,6 +557,22 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
         except Exception:
             pass
 
+    # ── Layer 5: yfinance prev_close top-up — for any symbol with price but no prev_close ──
+    _missing_pc = [s for s in symbols if s in out and out[s].get("prev_close") is None]
+    if _missing_pc:
+        try:
+            import yfinance as _yf
+            for sym in _missing_pc:
+                try:
+                    _tk   = _yf.Ticker(f"{sym}.NS")
+                    _hist = _tk.history(period="5d")
+                    if not _hist.empty and len(_hist) >= 2:
+                        out[sym]["prev_close"] = round(float(_hist["Close"].iloc[-2]), 2)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     return out
 
 
@@ -7933,6 +7949,9 @@ def _render_daily_dukaan_table(data: list) -> None:
             for i in range(len(top3))
         ]
         sdf = pd.DataFrame(sug_rows)
+        for _c in ["Prev Close", "% Day Change", "Current Price"]:
+            if _c in sdf.columns:
+                sdf[_c] = pd.to_numeric(sdf[_c], errors="coerce")
 
         def _color_pct_day(col):
             return [
@@ -8298,6 +8317,9 @@ def _render_ll_etf_table(data: list) -> None:
             for i in range(len(top3))
         ]
         sdf = pd.DataFrame(sug_rows)
+        for _c in ["Prev Close", "% Day Change", "Current Price"]:
+            if _c in sdf.columns:
+                sdf[_c] = pd.to_numeric(sdf[_c], errors="coerce")
 
         def _color_pct_day(col):
             return [
@@ -8685,6 +8707,9 @@ def _render_eff_table(data: list) -> None:
             for i in range(len(top3))
         ]
         sdf = pd.DataFrame(sug_rows)
+        for _c in ["Prev Close", "% Day Change", "Current Price"]:
+            if _c in sdf.columns:
+                sdf[_c] = pd.to_numeric(sdf[_c], errors="coerce")
 
         def _color_pct_day(col):
             return [
