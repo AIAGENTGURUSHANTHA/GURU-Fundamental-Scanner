@@ -5304,7 +5304,9 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
         buy_px   = float(h.get("buy_price") or 0)
         sell_px  = float(h.get("sell_price") or 0)
         sqty     = float(h.get("sell_qty") or h.get("buy_qty") or 0)
+        ppu      = sell_px - buy_px
         pnl_clr  = ("#4ade80" if dark else "#16a34a") if (pa or 0) >= 0 else ("#f87171" if dark else "#dc2626")
+        ppu_clr  = ("#4ade80" if dark else "#16a34a") if ppu >= 0 else ("#f87171" if dark else "#dc2626")
         pct_str  = f"{pp:+.2f}%" if pp is not None else "—"
         row_bg   = row_alt if i % 2 == 0 else "transparent"
         td       = (f'style="padding:5px 8px;font-size:0.76rem;border-bottom:1px solid '
@@ -5315,6 +5317,7 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
             f'<td {td}>{sell_dt}</td>'
             f'<td {td}>₹{buy_px:,.2f}</td>'
             f'<td {td}>₹{sell_px:,.2f}</td>'
+            f'<td {td}><span style="color:{ppu_clr};font-weight:600;">₹{ppu:+,.2f}</span></td>'
             f'<td {td}>{sqty:,.0f}</td>'
             f'<td {td}><span style="color:{pnl_clr};font-weight:700;">₹{pa:+,.2f}</span></td>'
             f'<td {td}><span style="color:{pnl_clr};">{pct_str}</span></td>'
@@ -5334,6 +5337,7 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
         f'<th {th_style}>Sell Date</th>'
         f'<th {th_style}>Buy Price</th>'
         f'<th {th_style}>Sell Price</th>'
+        f'<th {th_style}>Profit/Unit</th>'
         f'<th {th_style}>Qty</th>'
         f'<th {th_style}>P&L (₹)</th>'
         f'<th {th_style}>P&L %</th>'
