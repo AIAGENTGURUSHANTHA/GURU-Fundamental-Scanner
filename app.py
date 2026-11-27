@@ -1476,6 +1476,20 @@ def _load_tt_session(s: dict) -> None:
     st.session_state.tt_last_scan_symbols = [r.get("symbol", "") for r in raw]
 
 
+def _load_bps_stock_session(s: dict) -> None:
+    raw = json.loads(s["results_json"])
+    st.session_state.bps_stock_data              = raw
+    st.session_state.bps_stock_active_scan_name  = s["scan_name"]
+    st.session_state.bps_stock_last_fetched_at   = None
+
+
+def _load_bps_etf_session(s: dict) -> None:
+    raw = json.loads(s["results_json"])
+    st.session_state.bps_etf_data              = raw
+    st.session_state.bps_etf_active_scan_name  = s["scan_name"]
+    st.session_state.bps_etf_last_fetched_at   = None
+
+
 def _do_eff_fetch(symbols: list, scan_name: str, ref_date=None,
                   save_to_history: bool = False) -> None:
     """Fetch Eshwarana Fruit Forest data (52W Low, 3Y Avg, 5Y Avg) in parallel."""
@@ -1837,7 +1851,7 @@ def render_sidebar():
         if st.button("🏪 GURU SMART BUSINESS", use_container_width=True, type=gsb_type, key="nav_gsb"):
             st.session_state.section = "guru_smart_business"
             st.rerun()
-        if st.button("📐 Base Price Screener", use_container_width=True, type=bps_type, key="nav_bps"):
+        if st.button("📐 Post RD Screener", use_container_width=True, type=bps_type, key="nav_bps"):
             st.session_state.section = "base_price_screener"
             st.rerun()
         if st.button("📉 RSI Screener", use_container_width=True, type=rsi_type, key="nav_rsi"):
@@ -6819,6 +6833,9 @@ def _render_rsi_tab(prefix: str, label: str, sample_syms: list) -> None:
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", _fmt_ts(fetched_at))
+    _rsi_sn = st.session_state.get(f"{prefix}_active_scan_name", "")
+    if _rsi_sn:
+        st.caption(f"📁 Source: **{_rsi_sn}**")
 
     rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
     with rb1:
@@ -7019,12 +7036,15 @@ def _render_rsi_sections(valid: list, prefix: str) -> None:
 # ── Base Price Screener ────────────────────────────────────────────────────────
 
 def _fetch_base_price_single(symbol: str) -> dict:
-    """Return 3yr SMA (738d), 5yr SMA (1230d), and last-close for one NSE symbol."""
+    """Return 3yr/5yr SMA, 52W High/Low with dates, prev close for one NSE symbol."""
     import yfinance as _yf
     sym = symbol.strip().upper()
     result = {
         "symbol": sym, "company_name": sym,
-        "current_price": None,
+        "current_price": None, "prev_close": None,
+        "week52_low": None, "week52_low_date": None,
+        "week52_high": None, "week52_high_date": None,
+        "zone": None,
         "sma_3yr": None, "diff_3yr": None, "diff_3yr_pct": None,
         "sma_5yr": None, "diff_5yr": None, "diff_5yr_pct": None,
         "error": None,
@@ -7037,6 +7057,8 @@ def _fetch_base_price_single(symbol: str) -> dict:
             return result
         closes = hist["Close"].dropna()
         result["current_price"] = round(float(closes.iloc[-1]), 2)
+        if len(closes) >= 2:
+            result["prev_close"] = round(float(closes.iloc[-2]), 2)
         # Company name
         try:
             fi = t.fast_info
@@ -7047,6 +7069,17 @@ def _fetch_base_price_single(symbol: str) -> dict:
                     break
         except Exception:
             pass
+        # 52-week high/low (last 252 trading days)
+        hist_52w = hist.tail(252)
+        if not hist_52w.empty:
+            low_idx  = hist_52w["Close"].idxmin()
+            high_idx = hist_52w["Close"].idxmax()
+            result["week52_low"]       = round(float(hist_52w.loc[low_idx, "Close"]), 2)
+            result["week52_low_date"]  = str(low_idx.date()) if hasattr(low_idx, "date") else str(low_idx)[:10]
+            result["week52_high"]      = round(float(hist_52w.loc[high_idx, "Close"]), 2)
+            result["week52_high_date"] = str(high_idx.date()) if hasattr(high_idx, "date") else str(high_idx)[:10]
+            # Green zone when 52W low is more recent than 52W high (stock near its low)
+            result["zone"] = "Green" if result["week52_low_date"] >= result["week52_high_date"] else "Red"
         # 3-year SMA = last 738 trading days
         if len(closes) >= 738:
             sma3 = round(float(closes.tail(738).mean()), 2)
@@ -7069,7 +7102,10 @@ def _fetch_base_price_bulk(symbols: list) -> list:
     results_map: dict = {}
     _empty = lambda s: {
         "symbol": s.strip().upper(), "company_name": s, "error": "Not fetched",
-        "current_price": None, "sma_3yr": None, "diff_3yr": None, "diff_3yr_pct": None,
+        "current_price": None, "prev_close": None,
+        "week52_low": None, "week52_low_date": None, "week52_high": None, "week52_high_date": None,
+        "zone": None,
+        "sma_3yr": None, "diff_3yr": None, "diff_3yr_pct": None,
         "sma_5yr": None, "diff_5yr": None, "diff_5yr_pct": None,
     }
     with _TPE(max_workers=6) as ex:
@@ -7088,6 +7124,10 @@ def _render_base_price_tab(tab_key: str) -> None:
     dark      = st.session_state.get("dark_mode", False)
     data_key  = f"{tab_key}_data"
     fetch_key = f"{tab_key}_last_fetched_at"
+    name_key  = f"{tab_key}_active_scan_name"
+    scan_type = tab_key
+    load_fn   = _load_bps_stock_session if tab_key == "bps_stock" else _load_bps_etf_session
+    _auto_restore_scan(data_key, load_fn, scan_type)
 
     # ── Input ─────────────────────────────────────────────────────────────────
     tab_m, tab_f = st.tabs(["📝 Enter Symbols", "📁 Upload File"])
@@ -7107,6 +7147,7 @@ def _render_base_price_tab(tab_key: str) -> None:
             st.caption("NSE symbols. Fetches 3-year (738d) & 5-year (1230d) SMA from Yahoo Finance.")
         if scan_btn and txt.strip():
             symbols = _parser.parse_text_input(txt)
+            st.session_state[f"_bps_{tab_key}_pending_name"] = "Manual Scan"
 
     with tab_f:
         up = st.file_uploader(
@@ -7127,11 +7168,14 @@ def _render_base_price_tab(tab_key: str) -> None:
             symbols = _parser.parse_file(up)
             if not symbols:
                 st.warning("⚠️ No valid symbols found in file.")
+            else:
+                st.session_state[f"_bps_{tab_key}_pending_name"] = up.name
 
     # ── Fetch ─────────────────────────────────────────────────────────────────
     if symbols:
+        scan_name = st.session_state.pop(f"_bps_{tab_key}_pending_name", "Post RD Scan")
         st.markdown(
-            f"**Calculating Base Price SMA for {len(symbols)} symbol(s):** "
+            f"**Calculating Post RD SMA for {len(symbols)} symbol(s):** "
             f"{', '.join(symbols[:15])}{'…' if len(symbols) > 15 else ''}"
         )
         with st.spinner("📡 Fetching historical data from Yahoo Finance…"):
@@ -7144,6 +7188,8 @@ def _render_base_price_tab(tab_key: str) -> None:
                     if lp and lp.get("price"):
                         cp = float(lp["price"])
                         d["current_price"] = cp
+                        if lp.get("prev_close"):
+                            d["prev_close"] = lp["prev_close"]
                         if d["sma_3yr"]:
                             d["diff_3yr"]     = round(cp - d["sma_3yr"], 2)
                             d["diff_3yr_pct"] = round((d["diff_3yr"] / d["sma_3yr"] * 100), 2)
@@ -7152,28 +7198,155 @@ def _render_base_price_tab(tab_key: str) -> None:
                             d["diff_5yr_pct"] = round((d["diff_5yr"] / d["sma_5yr"] * 100), 2)
         st.session_state[data_key]  = data
         st.session_state[fetch_key] = datetime.now()
+        st.session_state[name_key]  = scan_name
 
     data = st.session_state.get(data_key, [])
     if not data:
-        st.info("Enter NSE symbols above and click 🔍 Scan to calculate base prices.")
+        st.info("Enter NSE symbols above and click 🔍 Scan to calculate Post RD prices.")
         return
 
-    fetched_at = st.session_state.get(fetch_key)
-    if fetched_at:
-        st.caption(f"🕐 Fetched at {fetched_at.strftime('%d %b %Y %H:%M:%S')}")
+    fetched_at  = st.session_state.get(fetch_key)
+    source_name = st.session_state.get(name_key, "")
 
     # ── Counts ─────────────────────────────────────────────────────────────────
     valid_data = [d for d in data if not d.get("error") and d.get("current_price")]
-    buy_3yr  = [d for d in valid_data if d.get("diff_3yr")  is not None and d["diff_3yr"]  < 0]
-    buy_5yr  = [d for d in valid_data if d.get("diff_5yr")  is not None and d["diff_5yr"]  < 0]
-    sell_3yr = [d for d in valid_data if d.get("diff_3yr")  is not None and d["diff_3yr"] >= 0]
-    sell_5yr = [d for d in valid_data if d.get("diff_5yr")  is not None and d["diff_5yr"] >= 0]
+    buy_3yr  = sorted([d for d in valid_data if d.get("diff_3yr")  is not None and d["diff_3yr"]  < 0],
+                      key=lambda x: x.get("diff_3yr_pct") or 0)
+    buy_5yr  = sorted([d for d in valid_data if d.get("diff_5yr")  is not None and d["diff_5yr"]  < 0],
+                      key=lambda x: x.get("diff_5yr_pct") or 0)
+    sell_3yr = [d for d in valid_data if d.get("diff_3yr") is not None and d["diff_3yr"] >= 0]
+    sell_5yr = [d for d in valid_data if d.get("diff_5yr") is not None and d["diff_5yr"] >= 0]
 
     mc1, mc2, mc3, mc4 = st.columns(4)
     mc1.metric("🟢 3yr Buy Signals",  len(buy_3yr))
     mc2.metric("🟢 5yr Buy Signals",  len(buy_5yr))
     mc3.metric("🔴 3yr Don't Buy",    len(sell_3yr))
     mc4.metric("🔴 5yr Don't Buy",    len(sell_5yr))
+
+    if source_name:
+        st.caption(f"📁 Source: **{source_name}**")
+    if fetched_at:
+        st.caption(f"🕐 Fetched at {fetched_at.strftime('%d %b %Y %H:%M:%S')}")
+
+    # Save button
+    sb1, sb2 = st.columns([1, 5])
+    with sb1:
+        if st.button("💾 Save", width='stretch', key=f"{tab_key}_save_btn",
+                     help="Save current results to your account"):
+            if st.session_state.get(data_key) and st.session_state.get("user"):
+                _u = st.session_state.user["phone_number"]
+                _n = st.session_state.get(name_key) or "Saved"
+                _save_scan(_u, _n, list(st.session_state[data_key]), scan_type=scan_type)
+                st.toast("✅ Saved!", icon="💾")
+
+    # ── Top 3 Buy Signals (collapsed) ─────────────────────────────────────────
+    if buy_3yr:
+        with st.expander(f"💡 Top 3 Buy Signals — 3-Year SMA (Most Below)", expanded=False):
+            top3_3yr = buy_3yr[:3]
+            rows3 = [{
+                "Rank": i + 1,
+                "Symbol": d["symbol"],
+                "Company": d.get("company_name", d["symbol"]),
+                "Current Price": d.get("current_price"),
+                "3yr SMA": d.get("sma_3yr"),
+                "Diff vs 3yr %": d.get("diff_3yr_pct"),
+            } for i, d in enumerate(top3_3yr)]
+            sdf3 = pd.DataFrame(rows3)
+            styled3 = (
+                sdf3.style
+                .format({
+                    "Current Price": lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                    "3yr SMA":       lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                    "Diff vs 3yr %": "{:+.1f}%",
+                }, na_rep="—")
+                .apply(lambda col: [
+                    "color: #16a34a; font-weight: 700" if pd.notna(v) else "" for v in col
+                ], subset=["Diff vs 3yr %"])
+            )
+            st.dataframe(styled3, hide_index=True, use_container_width=True)
+
+    if buy_5yr:
+        with st.expander(f"💡 Top 3 Buy Signals — 5-Year SMA (Most Below)", expanded=False):
+            top3_5yr = buy_5yr[:3]
+            rows5 = [{
+                "Rank": i + 1,
+                "Symbol": d["symbol"],
+                "Company": d.get("company_name", d["symbol"]),
+                "Current Price": d.get("current_price"),
+                "5yr SMA": d.get("sma_5yr"),
+                "Diff vs 5yr %": d.get("diff_5yr_pct"),
+            } for i, d in enumerate(top3_5yr)]
+            sdf5 = pd.DataFrame(rows5)
+            styled5 = (
+                sdf5.style
+                .format({
+                    "Current Price": lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                    "5yr SMA":       lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                    "Diff vs 5yr %": "{:+.1f}%",
+                }, na_rep="—")
+                .apply(lambda col: [
+                    "color: #16a34a; font-weight: 700" if pd.notna(v) else "" for v in col
+                ], subset=["Diff vs 5yr %"])
+            )
+            st.dataframe(styled5, hide_index=True, use_container_width=True)
+
+    # ── Comprehensive data table ───────────────────────────────────────────────
+    tbl_rows = []
+    for d in valid_data:
+        cp  = d.get("current_price")
+        pc  = d.get("prev_close")
+        pct_day = round((cp - pc) / pc * 100, 2) if (cp and pc) else None
+        tbl_rows.append({
+            "Symbol":        d["symbol"],
+            "Company Name":  d.get("company_name", d["symbol"]),
+            "Current Price": cp,
+            "Prev Close":    pc,
+            "% Day Change":  pct_day,
+            "52W Low":       d.get("week52_low"),
+            "52W Low Date":  d.get("week52_low_date"),
+            "52W High":      d.get("week52_high"),
+            "52W High Date": d.get("week52_high_date"),
+            "Zone":          d.get("zone"),
+            "3yr SMA":       d.get("sma_3yr"),
+            "Diff vs 3yr %": d.get("diff_3yr_pct"),
+            "5yr SMA":       d.get("sma_5yr"),
+            "Diff vs 5yr %": d.get("diff_5yr_pct"),
+        })
+
+    if tbl_rows:
+        tbl_df = pd.DataFrame(tbl_rows)
+
+        def _style_bps_table(df):
+            styles = pd.DataFrame("", index=df.index, columns=df.columns)
+            for col in ["% Day Change", "Diff vs 3yr %", "Diff vs 5yr %"]:
+                if col in df.columns:
+                    styles[col] = df[col].apply(
+                        lambda v: "color: #dc2626; font-weight: 700" if (pd.notna(v) and float(v) < 0)
+                        else ("color: #16a34a; font-weight: 700" if pd.notna(v) else "")
+                    )
+            if "Zone" in df.columns:
+                styles["Zone"] = df["Zone"].apply(
+                    lambda v: "color: #16a34a; font-weight: 700" if v == "Green"
+                    else ("color: #dc2626; font-weight: 700" if v == "Red" else "")
+                )
+            return styles
+
+        styled_tbl = (
+            tbl_df.style
+            .format({
+                "Current Price": lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "Prev Close":    lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "% Day Change":  lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
+                "52W Low":       lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "52W High":      lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "3yr SMA":       lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "Diff vs 3yr %": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+                "5yr SMA":       lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "Diff vs 5yr %": lambda v: f"{v:+.1f}%" if pd.notna(v) else "—",
+            }, na_rep="—")
+            .apply(_style_bps_table, axis=None)
+        )
+        st.dataframe(styled_tbl, hide_index=True, use_container_width=True)
 
     # ── Card renderer ──────────────────────────────────────────────────────────
     _g_bg = "rgba(20,83,45,0.4)"  if dark else "#dcfce7"
@@ -7196,7 +7369,7 @@ def _render_base_price_tab(tab_key: str) -> None:
         if not rows:
             st.caption("No stocks in this group.")
             return
-        for d in rows:
+        for d in rows[:5]:
             sym  = d["symbol"]
             name = d.get("company_name") or sym
             if d.get("error"):
@@ -7260,33 +7433,33 @@ def _render_base_price_tab(tab_key: str) -> None:
                 unsafe_allow_html=True,
             )
 
-    # ── Expandable sections ────────────────────────────────────────────────────
+    # ── Expandable sections (collapsed by default, top 5 each) ────────────────
     st.markdown("---")
-    with st.expander(f"🟢 3-Year Base Price — Buy Signals ({len(buy_3yr)} stocks)", expanded=True):
+    with st.expander(f"🟢 3-Year Post RD — Buy Signals ({len(buy_3yr)} stocks)", expanded=False):
         st.markdown(
             "<p style='font-size:0.82rem;color:gray;'>"
-            "Current price is <b>BELOW</b> the 3-year (738-day) SMA — potential buy zone.</p>",
+            "Current price is <b>BELOW</b> the 3-year (738-day) SMA — potential buy zone. Showing top 5.</p>",
             unsafe_allow_html=True)
         _render_bps_rows(buy_3yr)
 
-    with st.expander(f"🟢 5-Year Base Price — Buy Signals ({len(buy_5yr)} stocks)", expanded=True):
+    with st.expander(f"🟢 5-Year Post RD — Buy Signals ({len(buy_5yr)} stocks)", expanded=False):
         st.markdown(
             "<p style='font-size:0.82rem;color:gray;'>"
-            "Current price is <b>BELOW</b> the 5-year (1230-day) SMA — long-term buy zone.</p>",
+            "Current price is <b>BELOW</b> the 5-year (1230-day) SMA — long-term buy zone. Showing top 5.</p>",
             unsafe_allow_html=True)
         _render_bps_rows(buy_5yr)
 
-    with st.expander(f"🔴 3-Year Base Price — Don't Buy ({len(sell_3yr)} stocks)", expanded=False):
+    with st.expander(f"🔴 3-Year Post RD — Don't Buy ({len(sell_3yr)} stocks)", expanded=False):
         st.markdown(
             "<p style='font-size:0.82rem;color:gray;'>"
-            "Current price is <b>ABOVE</b> the 3-year (738-day) SMA — trading above base price.</p>",
+            "Current price is <b>ABOVE</b> the 3-year (738-day) SMA — trading above base price. Showing top 5.</p>",
             unsafe_allow_html=True)
         _render_bps_rows(sell_3yr)
 
-    with st.expander(f"🔴 5-Year Base Price — Don't Buy ({len(sell_5yr)} stocks)", expanded=False):
+    with st.expander(f"🔴 5-Year Post RD — Don't Buy ({len(sell_5yr)} stocks)", expanded=False):
         st.markdown(
             "<p style='font-size:0.82rem;color:gray;'>"
-            "Current price is <b>ABOVE</b> the 5-year (1230-day) SMA — trading above 5-year base.</p>",
+            "Current price is <b>ABOVE</b> the 5-year (1230-day) SMA — trading above 5-year base. Showing top 5.</p>",
             unsafe_allow_html=True)
         _render_bps_rows(sell_5yr)
 
@@ -7298,7 +7471,7 @@ def _render_base_price_tab(tab_key: str) -> None:
 
 
 def render_base_price_screener() -> None:
-    st.markdown("## 📐 Base Price Screener")
+    st.markdown("## 📐 Post RD Screener")
     st.markdown(
         "<p style='color:gray;font-size:0.9rem;margin-bottom:0.5rem;'>"
         "3-Year (738d) &amp; 5-Year (1230d) Simple Moving Average · "
@@ -7306,7 +7479,7 @@ def render_base_price_screener() -> None:
         "Live prices from NSE India</p>",
         unsafe_allow_html=True,
     )
-    tab_stock, tab_etf = st.tabs(["📊 Base Price Stock Screener", "🏦 Base Price ETF Screener"])
+    tab_stock, tab_etf = st.tabs(["📊 Post RD Stock Screener", "🏦 Post RD ETF Screener"])
     with tab_stock:
         _render_base_price_tab("bps_stock")
     with tab_etf:
@@ -7640,6 +7813,9 @@ def _render_daily_dukaan():
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
+    _dd_sn = st.session_state.get("dd_active_scan_name", "")
+    if _dd_sn:
+        st.caption(f"📁 Source: **{_dd_sn}**")
 
     # Refresh + Live buttons + market status badge
     rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
@@ -8047,6 +8223,9 @@ def _render_ll_etf():
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
+    _ll_sn = st.session_state.get("ll_etf_active_scan_name", "")
+    if _ll_sn:
+        st.caption(f"📁 Source: **{_ll_sn}**")
 
     # Refresh + Live buttons
     rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
@@ -8432,6 +8611,9 @@ def _render_eff():
     c3.metric("Loaded OK",       len(valid))
     if fetched_at:
         c4.metric("Last Fetched", (_fmt_ts(fetched_at) if fetched_at else "—"))
+    _eff_sn = st.session_state.get("eff_active_scan_name", "")
+    if _eff_sn:
+        st.caption(f"📁 Source: **{_eff_sn}**")
 
     # Refresh + Live buttons
     rb1, rb2, rb3, rb4 = st.columns([1, 1, 1, 3])
