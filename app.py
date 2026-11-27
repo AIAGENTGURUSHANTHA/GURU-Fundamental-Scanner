@@ -1556,13 +1556,14 @@ def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
         "day20_low_date":  None,
         "diff_pct":        None,
         "gtt_trigger":     None,
+        "zone":            None,
         "error":           None,
     }
     try:
         import yfinance as _yf
         t = _yf.Ticker(f"{symbol}.NS")
-        # ~90 calendar days covers 63 trading days — enough for 55D window
-        hist = t.history(period="90d", interval="1d", auto_adjust=True)
+        # 1 year of data: covers 55D/20D windows + 52W High/Low for Zone
+        hist = t.history(period="1y", interval="1d", auto_adjust=True)
         if hist.empty:
             result["error"] = "No data from Yahoo Finance"
             return result
@@ -1611,6 +1612,15 @@ def _fetch_tt_single(symbol: str, ref_date=None) -> dict:
             result["diff_pct"] = round((h55 - cp) / cp * 100, 2)
             if result["diff_pct"] > 10:
                 result["gtt_trigger"] = h55   # BUY GTT at the 55D high breakout level
+        # Zone: Green if current price is in lower half of 52W range, Red if upper half
+        try:
+            w52_high = round(float(hist["High"].max()), 2)
+            w52_low  = round(float(hist["Low"].min()),  2)
+            if cp and w52_high and w52_low and w52_high > w52_low:
+                mid = (w52_high + w52_low) / 2
+                result["zone"] = "Green" if cp <= mid else "Red"
+        except Exception:
+            pass
     except Exception as exc:
         result["error"] = str(exc)
     return result
@@ -7962,6 +7972,7 @@ def render_turtle_trading():
             "Current Price":     cp    if cp    is not None else float("nan"),
             "Prev Close":        pc    if pc    is not None else float("nan"),
             "% Day Change":      pct_d if pct_d is not None else float("nan"),
+            "Zone":              d.get("zone") or "—",
             "55D High":          h55   if h55   is not None else float("nan"),
             "55D High Date":     d.get("day55_high_date") or "—",
             "20D Low":           l20   if l20   is not None else float("nan"),
@@ -7983,6 +7994,14 @@ def render_turtle_trading():
             elif v > 0:          styles.append("color: #16a34a; font-weight: 600")
             elif v < 0:          styles.append("color: #dc2626; font-weight: 600")
             else:                styles.append("")
+        return styles
+
+    def _color_zone(col):
+        styles = []
+        for v in col:
+            if v == "Green":    styles.append("color: #16a34a; font-weight: 700")
+            elif v == "Red":    styles.append("color: #dc2626; font-weight: 700")
+            else:               styles.append("")
         return styles
 
     def _color_diff(col):
@@ -8016,6 +8035,7 @@ def render_turtle_trading():
             "GTT Trigger (BUY)":    lambda v: f"BUY @ ₹{v:,.2f}" if pd.notna(v) else "—",
         }, na_rep="—")
         .apply(_color_day_change, subset=["% Day Change"])
+        .apply(_color_zone,       subset=["Zone"])
         .apply(_color_diff,       subset=["% Below 55D High"])
         .apply(_color_gtt,        subset=["GTT Trigger (BUY)"])
     )
