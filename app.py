@@ -7082,6 +7082,11 @@ def _render_rsi_table(data: list, prefix: str) -> None:
 
     df = pd.DataFrame(rows)
 
+    # Default sort: Daily RSI → Weekly RSI → Monthly RSI (all ascending)
+    _sort_cols = [c for c in ("Daily RSI", "Weekly RSI", "Monthly RSI") if c in df.columns]
+    if _sort_cols:
+        df = df.sort_values(_sort_cols, ascending=True, na_position="last").reset_index(drop=True)
+
     h1, h2, h3 = st.columns([3, 1, 1])
     with h1:
         st.markdown(f"### 📊 RSI Results — {len(df)} symbol(s)")
