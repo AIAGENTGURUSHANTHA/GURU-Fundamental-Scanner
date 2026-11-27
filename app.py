@@ -585,65 +585,44 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
         except Exception:
             pass
 
-    # ── Layer 5: Yahoo Finance (.NS = NSE India data) — covers ETFs ──────────
-    _missing5 = [s for s in symbols if s not in out]
-    if _missing5:
+    # ── Layer 5: Yahoo Finance (.NS = NSE India data) — covers ETFs + prev_close
+    # Runs for: (a) symbols still missing a price, (b) symbols with price but
+    # no prev_close (Layer 1/GetQuoteApi gets lastPrice from orderBook but
+    # previousClose is NOT in that sub-object, so it stays None).
+    _l5_syms = [s for s in symbols
+                if s not in out or out.get(s, {}).get("prev_close") is None]
+    if _l5_syms:
         try:
             import yfinance as _yf5
 
             def _l5_fetch(sym: str) -> None:
                 try:
-                    _t5  = _yf5.Ticker(f"{sym}.NS")
-                    _fi5 = _t5.fast_info
-                    _px5 = getattr(_fi5, "last_price", None)
-                    if _px5 is None or float(_px5) <= 0:
-                        return
+                    _t5      = _yf5.Ticker(f"{sym}.NS")
+                    _fi5     = _t5.fast_info
+                    _px5     = getattr(_fi5, "last_price", None)
                     _pc5_raw = getattr(_fi5, "previous_close", None)
-                    _pc5 = round(float(_pc5_raw), 2) if _pc5_raw else None
+                    _pc5     = round(float(_pc5_raw), 2) if _pc5_raw else None
                     with _lock:
-                        out[sym] = {
-                            "price":      round(float(_px5), 2),
-                            "time":       "NSE Close",
-                            "prev_close": _pc5,
-                        }
+                        if sym not in out:
+                            # Full entry for symbols with no price yet
+                            if _px5 is not None and float(_px5) > 0:
+                                out[sym] = {
+                                    "price":      round(float(_px5), 2),
+                                    "time":       "NSE Close",
+                                    "prev_close": _pc5,
+                                }
+                        elif out[sym].get("prev_close") is None and _pc5 is not None:
+                            # Only fill missing prev_close for symbols already priced
+                            out[sym]["prev_close"] = _pc5
                 except Exception:
                     pass
 
             with ThreadPoolExecutor(max_workers=20) as _ex5:
-                list(_ex5.map(_l5_fetch, _missing5))
+                list(_ex5.map(_l5_fetch, _l5_syms))
         except Exception:
             pass
 
-    # ── Prev Close fill: symbols with price but no prev_close ────────────────
-    _no_pc = [s for s in symbols if s in out and out[s].get("prev_close") is None]
-    if _no_pc:
-        try:
-            from nsepython.rahu import _get_nse_session, headers as _nse_headers
-            _sess_pc = _get_nse_session()
-
-            def _fill_pc(sym: str) -> None:
-                for _url in (
-                    f"https://www.nseindia.com/api/quote-equity?symbol={sym}&series=EQ",
-                    f"https://www.nseindia.com/api/quote-equity?symbol={sym}",
-                ):
-                    try:
-                        _r = _sess_pc.get(_url, headers=_nse_headers, timeout=8)
-                        if _r.status_code == 200:
-                            _pi = _r.json().get("priceInfo") or {}
-                            _pc_raw = _pi.get("previousClose")
-                            if _pc_raw is not None:
-                                _pc = round(float(str(_pc_raw).replace(",", "")), 2)
-                                with _lock:
-                                    if sym in out:
-                                        out[sym]["prev_close"] = _pc
-                                return
-                    except Exception:
-                        pass
-
-            with ThreadPoolExecutor(max_workers=20) as _ex_pc:
-                list(_ex_pc.map(_fill_pc, _no_pc))
-        except Exception:
-            pass
+    return out
 
     return out
 
