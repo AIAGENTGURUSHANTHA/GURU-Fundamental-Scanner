@@ -5344,8 +5344,11 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
     for sym, g in groups.items():
         pct = (g["total_pnl"] / g["invest"] * 100) if g["invest"] else 0
         txn_detail = " · ".join(
-            f"₹{h.get('sell_price',0):,.2f}×{float(h.get('sell_qty') or h.get('buy_qty') or 0):,.0f}"
-            f"→₹{pa:+,.2f}" for h, pa, _pp in g["entries"]
+            (lambda sp, sq: f"₹{sp:,.2f}×{sq:,.0f}=₹{sp*sq:,.2f} (P&L ₹{pa:+,.2f})")(
+                float(h.get('sell_price') or 0),
+                float(h.get('sell_qty') or h.get('buy_qty') or 0)
+            )
+            for h, pa, _pp in g["entries"]
         )
         sym_lines.append(
             f'<div style="margin-bottom:4px;">'
