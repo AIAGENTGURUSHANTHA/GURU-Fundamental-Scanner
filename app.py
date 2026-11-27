@@ -5382,13 +5382,14 @@ def _render_holdings_tab(asset_type: str) -> None:
 
         # Metric strip
         total_invested = sum(h["buy_price"] * h["buy_qty"] for h in buy_rows)
-        virt_pnl, virt_cnt = 0.0, 0
+        cur_val_sum, virt_cnt = 0.0, 0
         for h in open_buy:
             live = live_prices.get(h["symbol"])
             if live:
                 rem = float(h.get("remaining_qty") or h.get("buy_qty") or 0)
-                virt_pnl += (live - float(h["buy_price"])) * rem
-                virt_cnt += 1
+                cur_val_sum += live * rem
+                virt_cnt    += 1
+        virt_pnl = cur_val_sum - total_invested   # matches top card: Current Value − Base Investment
 
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("BUY Rows",          len(buy_rows))
