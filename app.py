@@ -5298,7 +5298,7 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
                 f'color:{lbl};text-transform:uppercase;letter-spacing:0.05em;'
                 f'border-bottom:1px solid {brd}40;white-space:nowrap;"')
     detail_rows = []
-    for i, (h, pa, pp) in enumerate(sell_entries):
+    for i, (h, pa, pp, *_) in enumerate(sell_entries):
         sym      = h["symbol"]
         sell_dt  = h.get("sell_date") or h.get("buy_date") or "—"
         buy_px   = float(h.get("buy_price") or 0)
