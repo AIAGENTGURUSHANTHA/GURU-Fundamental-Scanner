@@ -319,8 +319,6 @@ def _chg_arrow(pct):
 
 def _is_market_open() -> bool:
     """True when the current IST time is within NSE normal market hours (Mon–Fri, 09:15–15:30)."""
-    from datetime import timezone, timedelta
-    IST = timezone(timedelta(hours=5, minutes=30))
     now = datetime.now(IST)
     if now.weekday() >= 5:                              # Saturday / Sunday
         return False
@@ -5230,14 +5228,12 @@ def _portfolio_metrics_html(buy_cnt, sell_cnt, total_invested,
         date_str = time_str = ""
         if price_ts:
             try:
-                from datetime import timezone as _tz, timedelta as _td
-                _IST = _tz(_td(hours=5, minutes=30))
                 # Convert naive UTC → IST, or re-attach IST for aware timestamps
                 _ts = price_ts
                 if _ts.tzinfo is None:
-                    _ts = _ts.replace(tzinfo=_tz.utc).astimezone(_IST)
+                    _ts = _ts.replace(tzinfo=timezone.utc).astimezone(IST)
                 else:
-                    _ts = _ts.astimezone(_IST)
+                    _ts = _ts.astimezone(IST)
                 date_str = _ts.strftime("%d-%b-%Y")
                 time_str = _ts.strftime("%H:%M:%S IST")
             except Exception:
@@ -5340,7 +5336,6 @@ def _sell_summary_card_html(sell_entries: list, total_booked: float, dark: bool)
            ("rgba(69,10,10,0.35)"  if dark else "rgba(254,226,226,0.6)")
     txt  = ("#4ade80" if dark else "#15803d") if pos else ("#f87171" if dark else "#b91c1c")
     lbl  = "#94a3b8" if dark else "#64748b"
-    card_bg = "#1e293b" if dark else "#ffffff"
     row_alt = "rgba(255,255,255,0.04)" if dark else "rgba(0,0,0,0.03)"
     icon = "✅" if pos else "❌"
     label = "Total Realized Profit" if pos else "Total Realized Loss"
@@ -6637,9 +6632,7 @@ def _render_rsi_tab(prefix: str, label: str, sample_syms: list) -> None:
         if _is_market_open():
             st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
         else:
-            from datetime import timezone as _tz, timedelta as _td
-            _IST = _tz(_td(hours=5, minutes=30))
-            ist_now = datetime.now(_IST).strftime("%d %b %Y, %I:%M %p IST")
+            ist_now = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
             st.info(f"⏸ Market closed ({ist_now}). Live / Refresh fetches the latest NSE close price.")
 
     st.markdown("---")
@@ -7440,8 +7433,6 @@ def _render_daily_dukaan():
         if _is_market_open():
             st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
         else:
-            from datetime import timezone, timedelta
-            IST = timezone(timedelta(hours=5, minutes=30))
             ist_now = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
             st.info(
                 f"⏸ Market closed ({ist_now}). "
@@ -7826,8 +7817,6 @@ def _render_ll_etf():
         if _is_market_open():
             st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
         else:
-            from datetime import timezone, timedelta
-            IST = timezone(timedelta(hours=5, minutes=30))
             ist_now = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
             st.info(
                 f"⏸ Market closed ({ist_now}). "
@@ -8223,8 +8212,6 @@ def _render_eff():
         if _is_market_open():
             st.success("🟢 **MARKET OPEN** — Live fetches real-time NSE prices.")
         else:
-            from datetime import timezone, timedelta
-            IST = timezone(timedelta(hours=5, minutes=30))
             ist_now = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
             st.info(
                 f"⏸ Market closed ({ist_now}). "
