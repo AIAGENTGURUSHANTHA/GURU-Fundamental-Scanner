@@ -37,6 +37,7 @@ class LLETFData(BaseModel):
     # Live-price enrichment
     price_source: str = "Yahoo Finance (NSE)"
     nse_live_time: Optional[str] = None
+    prev_close: Optional[float] = None           # Previous trading day's closing price
 
     error: Optional[str] = None
     data_source: str = "Yahoo Finance (NSE)"

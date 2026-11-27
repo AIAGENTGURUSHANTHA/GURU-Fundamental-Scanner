@@ -19,6 +19,7 @@ class DailyDukaanData(BaseModel):
     # Live-price enrichment (set when fetched from NSE during trading hours)
     price_source: str = "Yahoo Finance (NSE)"   # "NSE Live" during open market hours
     nse_live_time: Optional[str] = None          # NSE last-update timestamp for live prices
+    prev_close: Optional[float] = None           # Previous trading day's closing price
 
     error: Optional[str] = None
     data_source: str = "Yahoo Finance (NSE)"

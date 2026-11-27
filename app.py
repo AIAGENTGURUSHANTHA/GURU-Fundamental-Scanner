@@ -428,13 +428,20 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
         def _parse_get_quote(j: dict) -> tuple:
             eq = j.get("equityResponse", [{}])
             if not eq:
-                return None, ""
+                return None, "", None
             r     = eq[0]
             order = r.get("orderBook", {}) or {}
             trade = r.get("tradeInfo", {}) or {}
             price = order.get("lastPrice") or trade.get("lastPrice")
             ts    = r.get("lastUpdateTime", "") or ""
-            return price, ts
+            # Try common field names for previous close
+            pc_raw = (trade.get("previousPrice") or trade.get("previousClose")
+                      or order.get("previousClose") or r.get("previousPrice"))
+            try:
+                prev_c = round(float(str(pc_raw).replace(",", "")), 2) if pc_raw else None
+            except Exception:
+                prev_c = None
+            return price, ts, prev_c
 
         for sym in symbols:
             _got = False
@@ -449,11 +456,12 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                 try:
                     resp = sess.get(_url, headers=_nse_headers, timeout=10)
                     if resp.status_code == 200:
-                        price, ts = _parse_get_quote(resp.json())
+                        price, ts, prev_c = _parse_get_quote(resp.json())
                         if price is not None:
                             out[sym] = {
-                                "price": float(str(price).replace(",", "")),
-                                "time":  str(ts),
+                                "price":      float(str(price).replace(",", "")),
+                                "time":       str(ts),
+                                "prev_close": prev_c,
                             }
                             _got = True
                 except Exception:
@@ -477,9 +485,15 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                         or _d.get("marketDeptOrderBook", {}).get("tradeInfo", {}).get("lastPrice")
                     )
                     if _px is not None:
+                        _pc_raw = _d.get("priceInfo", {}).get("previousClose")
+                        try:
+                            _pc = round(float(str(_pc_raw).replace(",", "")), 2) if _pc_raw else None
+                        except Exception:
+                            _pc = None
                         out[sym] = {
-                            "price": float(str(_px).replace(",", "")),
-                            "time":  _d.get("metadata", {}).get("lastUpdateTime", "nse_eq"),
+                            "price":      float(str(_px).replace(",", "")),
+                            "time":       _d.get("metadata", {}).get("lastUpdateTime", "nse_eq"),
+                            "prev_close": _pc,
                         }
                 except Exception:
                     pass
@@ -503,10 +517,19 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
                     _s = str(_row.get("symbol", "")).upper()
                     _p = _row.get("lastPrice") or _row.get("last")
                     if _s and _p is not None:
-                        _etf_map[_s] = float(str(_p).replace(",", ""))
+                        _pc_raw = _row.get("previousClose") or _row.get("prevClose")
+                        try:
+                            _pc = round(float(str(_pc_raw).replace(",", "")), 2) if _pc_raw else None
+                        except Exception:
+                            _pc = None
+                        _etf_map[_s] = {"price": float(str(_p).replace(",", "")), "prev_close": _pc}
                 for sym in _missing:
                     if sym.upper() in _etf_map:
-                        out[sym] = {"price": _etf_map[sym.upper()], "time": "nse_etf"}
+                        out[sym] = {
+                            "price":      _etf_map[sym.upper()]["price"],
+                            "time":       "nse_etf",
+                            "prev_close": _etf_map[sym.upper()]["prev_close"],
+                        }
         except Exception:
             pass
 
@@ -518,16 +541,17 @@ def _fetch_nse_live_prices_bulk(symbols: list) -> dict:
             for sym in _missing:
                 try:
                     _tk   = _yf.Ticker(f"{sym}.NS")
-                    _hist = _tk.history(period="1d", interval="1m")
+                    _hist = _tk.history(period="5d")  # daily bars — last bar = current, second-last = prev close
                     if not _hist.empty:
                         _px = float(_hist["Close"].iloc[-1])
-                        out[sym] = {"price": _px, "time": "yfinance"}
+                        _pc = float(_hist["Close"].iloc[-2]) if len(_hist) >= 2 else None
+                        out[sym] = {"price": _px, "time": "yfinance", "prev_close": _pc}
                     else:
                         # Try fast_info as fallback
                         _fi = _tk.fast_info
                         _px = getattr(_fi, "last_price", None)
                         if _px:
-                            out[sym] = {"price": float(_px), "time": "yfinance"}
+                            out[sym] = {"price": float(_px), "time": "yfinance", "prev_close": None}
                 except Exception:
                     pass
         except Exception:
@@ -1136,6 +1160,7 @@ def _do_dd_fetch(symbols: list, scan_name: str, ref_date=None,
                     "ref_date":       nse_date,
                     "price_source":   source,
                     "nse_live_time":  lp["time"],
+                    "prev_close":     lp.get("prev_close"),
                     "price_vs_dma20": round(cp - dma20, 2) if dma20 else None,
                     "pct_vs_dma20":   round((cp - dma20) / dma20 * 100, 2) if dma20 else None,
                 }))
@@ -1401,6 +1426,7 @@ def _do_ll_etf_fetch(symbols: list, scan_name: str, ref_date=None,
                     "ref_date":         nse_date,
                     "price_source":     source,
                     "nse_live_time":    lp["time"],
+                    "prev_close":       lp.get("prev_close"),
                     "diff_52w_low":     round(cp - w52l,  2) if w52l  else r.diff_52w_low,
                     "pct_vs_52w_low":   round((cp - w52l)  / w52l  * 100, 2) if w52l  else r.pct_vs_52w_low,
                     "diff_3y":          round(cp - a3y, 2) if a3y else r.diff_3y,
@@ -1546,6 +1572,7 @@ def _do_eff_fetch(symbols: list, scan_name: str, ref_date=None,
                     "ref_date":         nse_date,
                     "price_source":     source,
                     "nse_live_time":    lp["time"],
+                    "prev_close":       lp.get("prev_close"),
                     "diff_52w_low":     round(cp - w52l,  2) if w52l  else r.diff_52w_low,
                     "pct_vs_52w_low":   round((cp - w52l)  / w52l  * 100, 2) if w52l  else r.pct_vs_52w_low,
                     "diff_3y":          round(cp - a3y, 2) if a3y else r.diff_3y,
@@ -7720,19 +7747,35 @@ def _render_daily_dukaan_table(data: list) -> None:
                 "% vs 20 DMA":   top3[i].pct_vs_dma20,
                 "Symbol":        top3[i].symbol,
                 "Company Name":  top3[i].company_name or top3[i].symbol,
+                "Current Price": top3[i].current_price,
+                "Prev Close":    top3[i].prev_close,
+                "% Day Change":  (
+                    round((top3[i].current_price - top3[i].prev_close) / top3[i].prev_close * 100, 2)
+                    if (top3[i].current_price and top3[i].prev_close) else None
+                ),
             }
             for i in range(len(top3))
         ]
         sdf = pd.DataFrame(sug_rows)
-        st.dataframe(
-            sdf, hide_index=True, width='stretch',
-            column_config={
-                "Rank":         st.column_config.NumberColumn("Rank",         format="%d",        width="small"),
-                "% vs 20 DMA":  st.column_config.NumberColumn("% vs 20 DMA",  format="%+.2f%%",   width="small"),
-                "Symbol":       st.column_config.TextColumn("Symbol",         width="small"),
-                "Company Name": st.column_config.TextColumn("Company Name",   width="large"),
-            },
+
+        def _color_pct_day(col):
+            return [
+                f"color: {'#dc2626' if (pd.notna(v) and v < 0) else '#16a34a'}; font-weight: 700"
+                if pd.notna(v) else ""
+                for v in col
+            ]
+
+        styled_sdf = (
+            sdf.style
+            .format({
+                "% vs 20 DMA":   "{:+.2f}%",
+                "Current Price": "₹{:.2f}",
+                "Prev Close":    lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "% Day Change":  lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
+            }, na_rep="—")
+            .apply(_color_pct_day, subset=["% Day Change"])
         )
+        st.dataframe(styled_sdf, hide_index=True, use_container_width=True)
 
         # ── Collapsible: highlight cards only (no table) ──────────────────────
         with st.expander("💡 Best Value Pick Cards (Most Below 20 DMA)", expanded=True):
@@ -8067,21 +8110,35 @@ def _render_ll_etf_table(data: list) -> None:
                 "Company Name":   top3[i].company_name or top3[i].symbol,
                 ref_label:        getattr(top3[i], ref_col),
                 "Current Price":  top3[i].current_price,
+                "Prev Close":     top3[i].prev_close,
+                "% Day Change":   (
+                    round((top3[i].current_price - top3[i].prev_close) / top3[i].prev_close * 100, 2)
+                    if (top3[i].current_price and top3[i].prev_close) else None
+                ),
             }
             for i in range(len(top3))
         ]
         sdf = pd.DataFrame(sug_rows)
-        st.dataframe(
-            sdf, hide_index=True, width='stretch',
-            column_config={
-                "Rank":          st.column_config.NumberColumn("Rank",         format="%d",       width="small"),
-                pct_col:         st.column_config.NumberColumn(pct_col,        format="%+.2f%%",  width="small"),
-                "Symbol":        st.column_config.TextColumn("Symbol",         width="small"),
-                "Company Name":  st.column_config.TextColumn("Company Name",   width="large"),
-                ref_label:       st.column_config.NumberColumn(ref_label,      format="₹%.2f"),
-                "Current Price": st.column_config.NumberColumn("Current Price (₹)", format="₹%.2f"),
-            },
+
+        def _color_pct_day(col):
+            return [
+                f"color: {'#dc2626' if (pd.notna(v) and v < 0) else '#16a34a'}; font-weight: 700"
+                if pd.notna(v) else ""
+                for v in col
+            ]
+
+        styled_sdf = (
+            sdf.style
+            .format({
+                pct_col:          "{:+.2f}%",
+                ref_label:        lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "Current Price":  lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "Prev Close":     lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "% Day Change":   lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
+            }, na_rep="—")
+            .apply(_color_pct_day, subset=["% Day Change"])
         )
+        st.dataframe(styled_sdf, hide_index=True, use_container_width=True)
 
         # ── Collapsible: highlight cards only (no table) ─────────────────────
         with st.expander("💡 Best Value Pick Cards", expanded=expanded):
@@ -8437,21 +8494,35 @@ def _render_eff_table(data: list) -> None:
                 "Company Name":   top3[i].company_name or top3[i].symbol,
                 ref_label:        getattr(top3[i], ref_col),
                 "Current Price":  top3[i].current_price,
+                "Prev Close":     top3[i].prev_close,
+                "% Day Change":   (
+                    round((top3[i].current_price - top3[i].prev_close) / top3[i].prev_close * 100, 2)
+                    if (top3[i].current_price and top3[i].prev_close) else None
+                ),
             }
             for i in range(len(top3))
         ]
         sdf = pd.DataFrame(sug_rows)
-        st.dataframe(
-            sdf, hide_index=True, width='stretch',
-            column_config={
-                "Rank":          st.column_config.NumberColumn("Rank",         format="%d",       width="small"),
-                pct_col:         st.column_config.NumberColumn(pct_col,        format="%+.2f%%",  width="small"),
-                "Symbol":        st.column_config.TextColumn("Symbol",         width="small"),
-                "Company Name":  st.column_config.TextColumn("Company Name",   width="large"),
-                ref_label:       st.column_config.NumberColumn(ref_label,      format="₹%.2f"),
-                "Current Price": st.column_config.NumberColumn("Current Price (₹)", format="₹%.2f"),
-            },
+
+        def _color_pct_day(col):
+            return [
+                f"color: {'#dc2626' if (pd.notna(v) and v < 0) else '#16a34a'}; font-weight: 700"
+                if pd.notna(v) else ""
+                for v in col
+            ]
+
+        styled_sdf = (
+            sdf.style
+            .format({
+                pct_col:          "{:+.2f}%",
+                ref_label:        lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "Current Price":  lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "Prev Close":     lambda v: f"₹{v:.2f}" if pd.notna(v) else "—",
+                "% Day Change":   lambda v: f"{v:+.2f}%" if pd.notna(v) else "—",
+            }, na_rep="—")
+            .apply(_color_pct_day, subset=["% Day Change"])
         )
+        st.dataframe(styled_sdf, hide_index=True, use_container_width=True)
 
         # ── Collapsible: highlight cards only (no table) ─────────────────────
         with st.expander("💡 Best Value Pick Cards", expanded=expanded):
