@@ -7087,6 +7087,16 @@ def _render_rsi_table(data: list, prefix: str) -> None:
     if _sort_cols:
         df = df.sort_values(_sort_cols, ascending=True, na_position="last").reset_index(drop=True)
 
+    # Seed the Filter & Sort widget defaults so ascending sort is pre-selected
+    # on every fresh login (session state clears on logout; setdefault prevents
+    # overwriting the user's mid-session manual changes)
+    _sk = f"_flt_sort_{prefix}"
+    _ak = f"_flt_asc_{prefix}"
+    if _sk not in st.session_state:
+        st.session_state[_sk] = _sort_cols
+    if _ak not in st.session_state:
+        st.session_state[_ak] = True
+
     h1, h2, h3 = st.columns([3, 1, 1])
     with h1:
         st.markdown(f"### 📊 RSI Results — {len(df)} symbol(s)")
